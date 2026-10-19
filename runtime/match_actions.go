@@ -69,6 +69,14 @@ func processMessage(ms *MatchState, msg runtime.MatchData, tc turnCtx) *MatchSta
 	}
 
 	p := &ms.Players[seat]
+	// Any move may name the noble to take if it leaves the player qualifying
+	// for more than one (Splendor: the player chooses).
+	var pick struct {
+		ArtifactID string `json:"artifactId"`
+	}
+	if json.Unmarshal(msg.GetData(), &pick) == nil {
+		ms.nobleChoice = pick.ArtifactID
+	}
 	switch op {
 	case OpActionHarvest:
 		return handleHarvest(ms, p, msg.GetData(), tc)

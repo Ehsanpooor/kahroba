@@ -1,7 +1,7 @@
 // The table: the painted board when it exists, else dark green velvet with a
 // gold-tooled border and a warm pool of light in the middle. The picture is
-// fitted to the SCREEN (cover, centred), so it is never stretched by the
-// camera's tilt. Lit, so cards and chips cast real shadows on it.
+// stretched to the SCREEN (whatever its shape), not to the tilted table.
+// Lit, so cards and chips cast real shadows on it.
 shader_type spatial;
 
 #include "res://shaders/common.gdshaderinc"
@@ -13,10 +13,9 @@ uniform vec2 tex_size = vec2(2400.0, 1080.0);
 uniform float dim = 0.72;  // the painted table a little darker (1 = as painted)
 
 void fragment() {
-	// cover-fit the picture to the viewport
-	float k = max(vp_size.x / tex_size.x, vp_size.y / tex_size.y);
-	vec2 shown = vp_size / (tex_size * k);
-	vec2 uv = (SCREEN_UV - 0.5) * shown + 0.5;
+	// the picture fills the whole screen, stretched to its shape, so its
+	// gold frame always runs along the four screen edges on any phone
+	vec2 uv = SCREEN_UV;
 	vec3 c;
 	if (has_tex > 0.5) {
 		c = texture(tex, uv).rgb * dim;

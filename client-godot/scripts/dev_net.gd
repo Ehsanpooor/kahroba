@@ -28,7 +28,8 @@ func _ready() -> void:
 		print("NETTEST join ", await Api.join_match(String(found[0]["match_id"]), String(found[0]["token"])))
 		game = {"mode": "online", "players": 2}
 	elif role == "host":
-		var r := await Api.rpc_call("create_private_match", {"playerCount": 2, "winThreshold": 15})
+		var count := 4 if OS.get_cmdline_user_args().has("--four") else 2
+		var r := await Api.rpc_call("create_private_match", {"playerCount": count, "winThreshold": 15})
 		print("NETTEST host room ", r["data"])
 		var f := FileAccess.open(codefile, FileAccess.WRITE)
 		f.store_string(String(r["data"].get("code", "")))

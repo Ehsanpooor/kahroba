@@ -15,7 +15,8 @@ extends Node3D
 
 const MAX_COINS := 10
 const RESERVE_MAX := 3
-const WIN_DEFAULT := 15
+const WIN_DEFAULT := 15  # a game against the computer
+const WIN_ONLINE := 18  # rated online games (the server's WIN_THRESHOLD)
 const TIER_OF_ROW := [1, 2, 3]  # level I on top
 
 # --- layout: measured on the host's design (new gen/Frame 45.png, PNG px),
@@ -230,7 +231,9 @@ func _apply_game_config() -> void:
 	mode = String(g.get("mode", "ai"))
 	difficulty = String(g.get("difficulty", "normal"))
 	win_points = int(g.get("win_points", WIN_DEFAULT))
-	if mode == "online" or not (win_points in [15, 18, 21]):
+	if mode == "online":
+		win_points = WIN_ONLINE
+	elif not (win_points in [15, 18, 21, 25, 30]):
 		win_points = WIN_DEFAULT
 	var n := clampi(int(g.get("players", 4)), 2, 4)
 	if mode == "tutorial":  # against Cosimo the guide, no clock
@@ -933,6 +936,8 @@ func start_turn(t: int, continuing := false) -> void:
 	if t == 0:
 		Sfx.play("turn_mine")
 		hud.banner(L.t("your_turn"), true)
+		if not demo:
+			Prefs.buzz(120)  # a short buzz: it is your turn
 	else:
 		Sfx.play("turn_other")
 		hud.banner(L.t("turn_of", String(opps[t - 1]["name"])), false)
@@ -1310,10 +1315,12 @@ func _on_buy_pressed() -> void:
 	if net:
 		var id := String(inspecting.data["id"])
 		var from_res := _inspect_reserve >= 0
+		var after: Dictionary = me["cards"].duplicate()
+		after[String(inspecting.data["element"])] = int(after[String(inspecting.data["element"])]) + 1
 		close_inspect()
 		if from_res:
 			close_fan()
-		net.send_buy(id, from_res)
+		net.send_buy(id, from_res, await _net_noble_pick(after))
 		return
 	buy_card(inspecting, _inspect_reserve)
 
@@ -1326,7 +1333,7 @@ func _on_reserve_pressed() -> void:
 	elif net:
 		var id := String(inspecting.data["id"])
 		close_inspect()
-		net.send_reserve(id)
+		net.send_reserve(id, await _net_noble_pick(me["cards"]))
 	else:
 		reserve_card(inspecting)
 
@@ -1440,7 +1447,9 @@ func _finish_picking() -> void:
 	if not _my_turn() or picks.is_empty():
 		return
 	if net:  # the server says yes, then the tokens fly to you
-		net.send_take(picks.duplicate())
+		var taken := picks.duplicate()
+		var noble := await _net_noble_pick(me["cards"])
+		net.send_take(taken, noble)
 		hud.set_stage("", false)
 		_refresh_glows()
 		return
@@ -1584,7 +1593,7 @@ func _do_reserve_blind(tier: int) -> void:
 	if not _my_turn() or not picks.is_empty() or (decks[tier] as Array).is_empty():
 		return
 	if net:
-		net.send_reserve_blind(tier)
+		net.send_reserve_blind(tier, await _net_noble_pick(me["cards"]))
 		return
 	_busy += 1
 	var d: Dictionary = (decks[tier] as Array).pop_back()
@@ -1757,23 +1766,60 @@ func _show_noble(i: int) -> void:
 
 
 ## A noble visits whoever has its bonuses (at most one per turn).
+## One noble per turn visits whoever has its bonuses; when several could
+## come, you choose (the computer takes the first). The others may come on
+## a later turn if they are still free.
 func _check_nobles(opp_i: int) -> void:
+	if net:
+		return  # online, the server awards nobles (net_game.gd shows them)
 	var p: Dictionary = me if opp_i < 0 else opps[opp_i]
+	var ready := _nobles_for(p["cards"])
+	if ready.is_empty():
+		return
+	var i: int = ready[0]
+	if opp_i < 0 and ready.size() > 1:
+		i = await _ask_noble(ready)
+	noble_owner[i] = p["name"]
+	p["nobles"] = int(p.get("nobles", 0)) + 1
+	_log(opp_i + 1, "noble", {"noble": noble_data[i]["id"]})
+	await _noble_claim(i, opp_i)
+
+
+## The nobles still free whose requirements `cards` (bonuses by colour) meet.
+func _nobles_for(cards_: Dictionary) -> Array:
+	var out := []
 	for i in noble_data.size():
 		if noble_owner[i] != "":
 			continue
 		var ok := true
 		for c in noble_data[i]["reqs"]:
-			if int(p["cards"][c]) < int(noble_data[i]["need"]):
+			if int(cards_.get(c, 0)) < int(noble_data[i]["need"]):
 				ok = false
-		if not ok:
-			continue
-		noble_owner[i] = p["name"]
-		p["nobles"] = int(p.get("nobles", 0)) + 1
-		_log(opp_i + 1, "noble", {"noble": noble_data[i]["id"]})
-		await _noble_claim(i, opp_i)
-		return
+		if ok:
+			out.append(i)
+	return out
 
+
+## Ask which of the nobles `idx` (indices into noble_data) should come.
+func _ask_noble(idx: Array) -> int:
+	var list := idx.map(func(i): return noble_data[i])
+	hud.choose_noble(list)
+	if demo or OS.get_cmdline_user_args().has("--autoplay"):
+		get_tree().create_timer(1.0).timeout.connect(func():
+			hud.close_modal()
+			hud.noble_chosen.emit(0))
+	var k: int = await hud.noble_chosen
+	return idx[k]
+
+
+## Online: the noble to ask the server for with a move that leaves you
+## with bonuses `after` ("" when at most one would come).
+func _net_noble_pick(after: Dictionary) -> String:
+	var ready := _nobles_for(after)
+	if ready.size() < 2:
+		return ""
+	var i := await _ask_noble(ready)
+	return "A-" + String(noble_data[i]["id"]).substr(2)
 
 ## The noble slides out of its place, comes to the middle of the table, big,
 ## turning, with a golden burst and a plaque, then goes to its host.
@@ -2286,6 +2332,15 @@ func _run_test(what: String) -> void:
 			me["reserved"] = []
 			_build()
 			hud.turn_started = Time.get_ticks_msec() / 1000.0 - 27.0
+		"nobles":  # you qualify for two nobles at once: choose one
+			for c in Gems.COLORS:
+				me["cards"][c] = 4
+			_build()
+			await _check_nobles(-1)
+		"pulse":  # the portrait of the player on turn beats
+			for k in 8:
+				print("PULSE me=%.3f seat1=%.3f" % [hud.me_view._face.scale.x, hud.seats[0]._face.scale.x])
+				await _wait(0.2)
 		"netdrop":  # the server stops answering mid-game
 			Net.force("off")
 		"inspect":

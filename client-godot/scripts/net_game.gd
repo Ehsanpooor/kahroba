@@ -627,27 +627,29 @@ func _sync() -> void:
 
 # ------------------------------------------------------------------ your moves
 
-func send_take(picks: Array) -> void:
+## Every move may carry `noble`: the noble chosen when the move leaves you
+## qualifying for more than one ("" = none to choose).
+func send_take(picks: Array, noble := "") -> void:
 	awaiting = true
 	if picks.size() == 2 and picks[0] == picks[1]:
-		Api.send_op(Api.OP_CHANNEL, {"element": Api.TO_ELEMENT[picks[0]]})
+		Api.send_op(Api.OP_CHANNEL, {"element": Api.TO_ELEMENT[picks[0]], "artifactId": noble})
 	else:
-		Api.send_op(Api.OP_HARVEST, {"elements": picks.map(func(c): return Api.TO_ELEMENT[c])})
+		Api.send_op(Api.OP_HARVEST, {"elements": picks.map(func(c): return Api.TO_ELEMENT[c]), "artifactId": noble})
 
 
-func send_buy(id: String, from_reserve: bool) -> void:
+func send_buy(id: String, from_reserve: bool, noble := "") -> void:
 	awaiting = true
-	Api.send_op(Api.OP_HIRE, {"characterId": id, "fromReserve": from_reserve, "aetherUse": 0})
+	Api.send_op(Api.OP_HIRE, {"characterId": id, "fromReserve": from_reserve, "aetherUse": 0, "artifactId": noble})
 
 
-func send_reserve(id: String) -> void:
+func send_reserve(id: String, noble := "") -> void:
 	awaiting = true
-	Api.send_op(Api.OP_JAIL, {"characterId": id})
+	Api.send_op(Api.OP_JAIL, {"characterId": id, "artifactId": noble})
 
 
-func send_reserve_blind(tier: int) -> void:
+func send_reserve_blind(tier: int, noble := "") -> void:
 	awaiting = true
-	Api.send_op(Api.OP_JAIL, {"characterId": "", "tier": tier})
+	Api.send_op(Api.OP_JAIL, {"characterId": "", "tier": tier, "artifactId": noble})
 
 
 func concede() -> void:

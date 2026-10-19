@@ -45,7 +45,9 @@ func endOfTurn(ms *MatchState, tc turnCtx) *MatchState {
 	seat := ms.CurrentTurn
 	p := &ms.Players[seat]
 
-	if artifactID := CheckArtifacts(p.HiredCards, ms.Artifacts); artifactID != "" {
+	choice := ms.nobleChoice
+	ms.nobleChoice = ""
+	if artifactID := CheckArtifactsPreferring(p.HiredCards, ms.Artifacts, choice); artifactID != "" {
 		remaining := make([]Artifact, 0, len(ms.Artifacts))
 		for _, a := range ms.Artifacts {
 			if a.ID != artifactID {

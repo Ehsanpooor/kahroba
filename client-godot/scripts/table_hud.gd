@@ -663,6 +663,43 @@ func show_sheet(p: Dictionary, is_me: bool, nav := Callable()) -> void:
 		_nav_arrows(box, size_d, nav)
 
 
+## Several nobles would visit you at once: their portraits side by side,
+## tap the one you want (Splendor: one per turn, the player chooses; the
+## others may come on a later turn). Cannot be closed without a choice.
+signal noble_chosen(index: int)
+
+
+func choose_noble(list: Array) -> void:
+	var cell := 380.0
+	var size_d := Vector2(maxf(cell * list.size() + 120.0, 1000.0), 640)
+	var box := _content(_open_modal(size_d + Vector2(0, HEAD), false, L.t("choose_noble")))
+	_text(box, L.t("choose_noble_sub"), TS.BODY, MUTED, "serif", Vector2(60, 20), size_d.x - 120.0)
+	var x0 := (size_d.x - cell * list.size()) * 0.5
+	for k in list.size():
+		var nd: Dictionary = list[k]
+		var i := list.size() - 1 - k if L.fa() else k
+		var b := Button.new()
+		b.focus_mode = Control.FOCUS_NONE
+		Kit._empty_styles(b)
+		_put(box, b, Vector2(x0 + i * cell + 20, 90), Vector2(cell - 40, 470))
+		var t := Gems.noble_tex(String(nd["id"]))
+		if t:
+			var tr := TextureRect.new()
+			tr.texture = t
+			tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+			tr.size = Vector2(cell - 40, cell - 40) * s
+			tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			b.add_child(tr)
+		_text(b, L.t("noble_" + String(nd["id"])), TS.LABEL, GOLD, "serif_bold", Vector2(0, cell - 30), cell - 40.0)
+		_text(b, "+3 %s" % L.t("prestige"), TS.BODY, IVORY, "serif", Vector2(0, cell + 20), cell - 40.0)
+		Kit.feedback(b)
+		var idx := k
+		b.pressed.connect(func():
+			close_modal()
+			noble_chosen.emit(idx))
+
+
 func _nav_arrows(box: Control, size_d: Vector2, nav: Callable) -> void:
 	var d := 100.0 * s
 	var prev := Kit.round_button("arrow", d, "onyx", true)
@@ -719,27 +756,51 @@ func show_noble(nd: Dictionary, have: Dictionary, owner: String, nav := Callable
 
 
 func show_results(rows: Array, title: String, mine_won: bool, on_again: Callable, on_menu: Callable) -> void:
-	var size_d := Vector2(1400, 190 + rows.size() * 130.0)
+	# one row per player on the painted row art: everything sits inside its
+	# dark band, between the gem caps at the ends; the column titles are
+	# written once, above the rows
+	var row_h := 112.0
+	var step := 128.0
+	var size_d := Vector2(1500, 250 + rows.size() * step)
 	var box := _content(_open_modal(size_d + Vector2(0, HEAD), false, title))
 	var w := size_d.x
+	var rw := w - 120.0
+	var cap := row_h / 127.0 * 118.0  # the gem cap at each end of the row art
+	var col_pts := rw - cap - 330.0
+	var col_cards := rw - cap - 170.0
+	_text(box, L.t("results_power"), TS.CAPTION, MUTED, "serif_bold", Vector2(60 + _mx(col_pts, 150, rw), 24), 150.0)
+	_text(box, L.t("results_cards"), TS.CAPTION, MUTED, "serif_bold", Vector2(60 + _mx(col_cards, 150, rw), 24), 150.0)
 	for k in rows.size():
 		var r: Dictionary = rows[k]
-		var y := 30.0 + k * 130.0
+		var mine: bool = r.get("me", false)
 		var row := Control.new()
 		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		_put(box, row, Vector2(60, y), Vector2(w - 120, 116))
-		row.add_child(Kit.row(Vector2(w - 120, 116) * s, r.get("me", false)))
-		var ink: Color = Kit.INK_DARK if r.get("me", false) else IVORY
-		var rw := w - 120.0
-		_text(row, str(k + 1), TS.NUM_M, ink, "num", Vector2(_mx(62, 60, rw), 30), 60.0)
-		var av := _avatar(String(r["portrait"]), 96.0)
-		av.position = Vector2(_mx(130, 96, rw), 10) * s
+		_put(box, row, Vector2(60, 70 + k * step), Vector2(rw, row_h))
+		row.add_child(Kit.row(Vector2(rw, row_h) * s, mine))
+		var ink: Color = Kit.INK_DARK if mine else IVORY
+		var mid := row_h * 0.5
+		# place: a medal for the first three, else the number
+		var medal := Kit.tex("medal_%d" % (k + 1)) if k < 3 else null
+		var rx := cap + 6.0
+		if medal:
+			var m := TextureRect.new()
+			m.texture = medal
+			m.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			m.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			m.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			_put(row, m, Vector2(_mx(rx, 76, rw), mid - 38), Vector2(76, 76))
+		else:
+			_text(row, str(k + 1), TS.NUM_M, ink, "num", Vector2(_mx(rx, 76, rw), mid - TS.NUM_M * 0.8), 76.0)
+		var ad := 80.0
+		var av := _avatar(String(r["portrait"]), ad)
+		av.position = Vector2(_mx(rx + 90, ad, rw), mid - ad * 0.5) * s
 		row.add_child(av)
-		_text(row, String(r["name"]), TS.LABEL, ink, "serif_bold", Vector2(_mx(250, 480, rw), 30), 480.0, _start())
-		_text(row, "%d" % int(r["power"]), TS.NUM_M, ink, "num", Vector2(_mx(760, 150, rw), 14), 150.0)
-		_text(row, L.t("results_power"), TS.CAPTION, ink, "serif", Vector2(_mx(760, 150, rw), 72), 150.0)
-		_text(row, "%d" % int(r["cards"]), TS.NUM_M, ink, "num", Vector2(_mx(940, 150, rw), 14), 150.0)
-		_text(row, L.t("results_cards"), TS.CAPTION, ink, "serif", Vector2(_mx(940, 150, rw), 72), 150.0)
+		var nx := rx + 190.0
+		var nw := col_pts - nx - 20.0
+		_text(row, String(r["name"]), TS.LABEL, ink, "serif_bold", Vector2(_mx(nx, nw, rw), mid - TS.LABEL * 0.8), nw, _start())
+		_text(row, "%d" % int(r["power"]), TS.NUM_M, GOLD if not mine else ink, "num",
+				Vector2(_mx(col_pts, 150, rw), mid - TS.NUM_M * 0.8), 150.0)
+		_text(row, "%d" % int(r["cards"]), TS.NUM_M, ink, "num", Vector2(_mx(col_cards, 150, rw), mid - TS.NUM_M * 0.8), 150.0)
 	var again := button(L.t("play_again"), Vector2(380, 116), "emerald", func():
 		close_modal()
 		on_again.call())

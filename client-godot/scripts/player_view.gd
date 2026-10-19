@@ -68,6 +68,8 @@ var _bg: TextureRect
 var _groups := {}
 var _reserve_box: Control
 var _portrait_c := Vector2.ZERO
+var _face: Control  ## the portrait and its ring, which pulse on this player's turn
+var _pulse: Tween
 
 
 func setup(player: Dictionary, view_mode: String, scale_px: float) -> void:
@@ -248,9 +250,14 @@ func _avatar() -> void:
 	mat.set_shader_parameter("back", Color(0.95, 0.86, 0.8))
 	face.material = mat
 	face.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	face.position = _pt(c.x - dd * 0.5, c.y - dd * 0.5)
-	face.size = Vector2.ONE * _len(dd)
-	add_child(face)
+	_face = Control.new()
+	_face.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_face.position = _pt(c.x - dd * 0.5, c.y - dd * 0.5)
+	_face.size = Vector2.ONE * _len(dd)
+	_face.pivot_offset = _face.size * 0.5
+	add_child(_face)
+	face.size = _face.size
+	_face.add_child(face)
 	var ring := Panel.new()
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0, 0, 0, 0)
@@ -259,10 +266,11 @@ func _avatar() -> void:
 	sb.set_corner_radius_all(int(face.size.x))
 	sb.anti_aliasing = true
 	ring.add_theme_stylebox_override("panel", sb)
-	ring.position = face.position
 	ring.size = face.size
 	ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(ring)
+	_face.add_child(ring)
+	if active:
+		_start_pulse()
 
 
 ## One colour: the card stack (front card with the count, cards behind it
@@ -383,6 +391,31 @@ func set_active(on: bool) -> void:
 	if _bg:
 		var tw := _bg.create_tween()
 		tw.tween_property(_bg, "modulate", Color.WHITE if on else RESTING, 0.35)
+	if on:
+		_start_pulse()
+	else:
+		_stop_pulse()
+
+
+## The player on turn: their portrait beats gently, like a heart, until the
+## turn passes.
+func _start_pulse() -> void:
+	if _face == null:
+		return
+	_stop_pulse()
+	_pulse = _face.create_tween().set_loops()
+	_pulse.tween_property(_face, "scale", Vector2.ONE * 1.12, 0.45).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	_pulse.tween_property(_face, "scale", Vector2.ONE, 0.55).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_pulse.tween_interval(0.35)
+
+
+func _stop_pulse() -> void:
+	if _pulse and _pulse.is_valid():
+		_pulse.kill()
+	_pulse = null
+	if _face:
+		var tw := _face.create_tween()
+		tw.tween_property(_face, "scale", Vector2.ONE, 0.2)
 
 
 func pop_token(col: String) -> void:

@@ -11,7 +11,7 @@ import (
 // for the offline AI game.
 //
 // WinThresholdOptions are the Power targets an unrated game may choose.
-var WinThresholdOptions = []int{15, 18, 21}
+var WinThresholdOptions = []int{15, 18, 21, 25, 30}
 
 // validWinThreshold reports whether v is one of WinThresholdOptions.
 func validWinThreshold(v int) bool {
@@ -281,6 +281,30 @@ func ValidateJail(cardID string, tier int, reserveCount int, visibleCards []stri
 // Artifacts are scanned in the order they were revealed, which is the shuffled
 // order fixed at setup, so the choice is deterministic for a given match.
 func CheckArtifacts(hiredCards []CharacterCard, availableArtifacts []Artifact) string {
+	return CheckArtifactsPreferring(hiredCards, availableArtifacts, "")
+}
+
+// CheckArtifactsPreferring is CheckArtifacts with the player's choice: when
+// `preferred` is one of the artifacts the player qualifies for, it is the
+// one claimed (Splendor lets the player choose among several nobles);
+// otherwise the first qualifying one is, as before. Still one per turn.
+func CheckArtifactsPreferring(hiredCards []CharacterCard, availableArtifacts []Artifact, preferred string) string {
+	first := ""
+	for _, id := range qualifyingArtifacts(hiredCards, availableArtifacts) {
+		if id == preferred {
+			return id
+		}
+		if first == "" {
+			first = id
+		}
+	}
+	return first
+}
+
+// qualifyingArtifacts lists, in table order, every artifact the player's
+// hired cards meet.
+func qualifyingArtifacts(hiredCards []CharacterCard, availableArtifacts []Artifact) []string {
+	var out []string
 	affinity := AffinityBonus(hiredCards)
 	for _, art := range availableArtifacts {
 		qualifies := true
@@ -291,10 +315,10 @@ func CheckArtifacts(hiredCards []CharacterCard, availableArtifacts []Artifact) s
 			}
 		}
 		if qualifies {
-			return art.ID
+			out = append(out, art.ID)
 		}
 	}
-	return ""
+	return out
 }
 
 // ---------- Standings & win detection (GDD v2 §9) ----------

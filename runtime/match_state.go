@@ -173,6 +173,11 @@ type MatchState struct {
 	removed      map[string]bool
 	refillClaims map[string]int64
 
+	// nobleChoice is the noble the player on turn asked for with their move
+	// ("artifactId" in the action payload), used when they qualify for
+	// several at once. Cleared at the end of every turn; never serialised.
+	nobleChoice string
+
 	// lastLabel is the match label last published, so it is only re-sent
 	// when it changes.
 	lastLabel string

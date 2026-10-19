@@ -10,7 +10,7 @@ static var _synced := false  ## profile sent and rating read once per launch
 
 func build() -> void:
 	Sfx.music(true, "menu")
-	backdrop("menu_bg", 0.15)
+	backdrop("menu_bg", 0.15, L.fa())  # the desk stays on the side away from the buttons
 	# a soft dark band behind the menu, so it reads on any hall
 	var band := TextureRect.new()
 	var gt := GradientTexture2D.new()

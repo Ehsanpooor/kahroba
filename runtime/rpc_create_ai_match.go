@@ -52,7 +52,7 @@ func rpcCreateAIMatch(ctx context.Context, logger runtime.Logger, db *sql.DB, nk
 		req.WinThreshold = WinThreshold
 	}
 	if !validWinThreshold(req.WinThreshold) {
-		return "", runtime.NewError("winThreshold must be 15, 20, 25 or 30", 3)
+		return "", runtime.NewError("winThreshold must be 15, 18, 21, 25 or 30", 3)
 	}
 
 	meta, err := readMetadata(ctx, nk, userID)

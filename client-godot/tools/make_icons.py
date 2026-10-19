@@ -1,67 +1,65 @@
-"""Make the app icons from the gem crest (logo_splendor_mark).
+"""Make the app icons from the icon painting (a merchant holding three gems).
 
 Run:  python tools/make_icons.py
 
-Source: art/generated/ui3/logo_splendor_mark.png (the full-size original),
-or assets/splendor/ui/logo_splendor_mark.png when that is missing.
+Source: art/generated/ui3/app_icon_source.png (square painting, full bleed).
 Output: assets/icon/
   icon.png                 512  project icon (window / taskbar, boot)
   icon_192.png             192  Android launcher icon (legacy, full square)
-  adaptive_fg_432.png      432  Android adaptive foreground (crest in the safe zone, transparent)
-  adaptive_bg_432.png      432  Android adaptive background (plain dark)
+  adaptive_fg_432.png      432  Android adaptive foreground (the painting, sized so
+                                the launcher's mask shows her face and the gems)
+  adaptive_bg_432.png      432  Android adaptive background (the painting, darkened)
   adaptive_mono_432.png    432  Android 13 themed (monochrome) icon
   splendor.ico             16-256 Windows exe icon
 """
 import os
 
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PROJECT = os.path.normpath(os.path.join(HERE, ".."))
-SOURCES = [
-    os.path.normpath(os.path.join(PROJECT, "..", "art", "generated", "ui3", "logo_splendor_mark.png")),
-    os.path.join(PROJECT, "assets", "splendor", "ui", "logo_splendor_mark.png"),
-]
+SOURCE = os.path.normpath(os.path.join(PROJECT, "..", "art", "generated", "ui3", "app_icon_source.png"))
 OUT = os.path.join(PROJECT, "assets", "icon")
-BG = (11, 11, 10, 255)  # #0b0b0a, the boot splash colour
+# The launcher shows roughly the middle two thirds of an adaptive layer, so the
+# painting is drawn at this share of the layer: her face and the three gems
+# then stay inside every mask shape (circle, squircle, rounded square).
+ADAPTIVE_K = 0.8
+ADAPTIVE_DOWN = 10  # px: her face sits high in the painting, so it moves down a little
 
 
-def crest():
-    for p in SOURCES:
-        if os.path.exists(p):
-            im = Image.open(p).convert("RGBA")
-            box = im.getchannel("A").point(lambda v: 255 if v > 8 else 0).getbbox()
-            return im.crop(box) if box else im
-    raise SystemExit("logo_splendor_mark.png not found")
-
-
-def place(canvas_px, mark, width_k, bg):
-    """The crest centred on a square canvas, `width_k` of its side wide."""
-    c = Image.new("RGBA", (canvas_px, canvas_px), bg)
-    w = round(canvas_px * width_k)
-    h = round(w * mark.height / mark.width)
-    m = mark.resize((w, h), Image.LANCZOS)
-    c.alpha_composite(m, ((canvas_px - w) // 2, (canvas_px - h) // 2))
-    return c
+def square(im, px):
+    return im.resize((px, px), Image.LANCZOS)
 
 
 def main():
+    if not os.path.exists(SOURCE):
+        raise SystemExit("app_icon_source.png not found")
     os.makedirs(OUT, exist_ok=True)
-    mark = crest()
-    clear = (0, 0, 0, 0)
-    place(512, mark, 0.84, BG).save(os.path.join(OUT, "icon.png"), optimize=True)
-    place(192, mark, 0.84, BG).save(os.path.join(OUT, "icon_192.png"), optimize=True)
-    # adaptive: the launcher masks a 432 px layer to its middle ~288 px (safe zone 264)
-    place(432, mark, 0.62, clear).save(os.path.join(OUT, "adaptive_fg_432.png"), optimize=True)
-    Image.new("RGBA", (432, 432), BG).save(os.path.join(OUT, "adaptive_bg_432.png"), optimize=True)
-    mono = place(432, mark, 0.62, clear)
-    a = mono.getchannel("A")
-    white = Image.new("RGBA", mono.size, (255, 255, 255, 255))
-    white.putalpha(a)
-    white.save(os.path.join(OUT, "adaptive_mono_432.png"), optimize=True)
-    # Windows: dark square with the crest, all the usual sizes in one .ico
-    big = place(256, mark, 0.9, BG)
-    big.save(os.path.join(OUT, "splendor.ico"), sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+    art = Image.open(SOURCE).convert("RGBA")
+    side = min(art.size)
+    art = art.crop(((art.width - side) // 2, (art.height - side) // 2,
+                    (art.width + side) // 2, (art.height + side) // 2))
+    square(art, 512).save(os.path.join(OUT, "icon.png"), optimize=True)
+    square(art, 192).save(os.path.join(OUT, "icon_192.png"), optimize=True)
+    # adaptive: the painting, a little smaller than the layer, over a soft
+    # darkened copy of itself (so any edge the mask reveals still matches)
+    bg = square(art, 432).filter(ImageFilter.GaussianBlur(10))
+    bg = ImageEnhance.Brightness(bg).enhance(0.55)
+    bg.save(os.path.join(OUT, "adaptive_bg_432.png"), optimize=True)
+    fg = Image.new("RGBA", (432, 432), (0, 0, 0, 0))
+    w = round(432 * ADAPTIVE_K)
+    fg.alpha_composite(square(art, w), ((432 - w) // 2, (432 - w) // 2))
+    fg.save(os.path.join(OUT, "adaptive_fg_432.png"), optimize=True)
+    # themed icon: a white silhouette of the gems' outline area (Android tints it)
+    gray = square(art, w).convert("L").point(lambda v: 255 if v > 150 else 0)
+    mono = Image.new("RGBA", (432, 432), (0, 0, 0, 0))
+    white = Image.new("RGBA", (w, w), (255, 255, 255, 255))
+    white.putalpha(gray)
+    mono.alpha_composite(white, ((432 - w) // 2, (432 - w) // 2))
+    mono.save(os.path.join(OUT, "adaptive_mono_432.png"), optimize=True)
+    # Windows: the painting, all the usual sizes in one .ico
+    square(art, 256).save(os.path.join(OUT, "splendor.ico"),
+                          sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
     print("icons written to", OUT)
 
 

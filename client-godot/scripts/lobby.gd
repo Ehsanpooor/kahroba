@@ -10,6 +10,7 @@ signal ready_pressed
 
 const READY_SECONDS := 120.0
 const D := Vector2(2400, 1080)
+const CODE_COL := 700.0  ## the room code's column on the left of the waiting room
 
 var _vp := Vector2.ZERO
 var _u := 1.0
@@ -81,20 +82,20 @@ func _text(parent: Control, t: String, px: float, color: Color, kind: String, bo
 
 
 ## The dialog both screens sit on; returns it (its seats go inside).
-func _dialog(title: String) -> Control:
-	var box := Kit.dialog(Vector2(1900, 640) * _u, title, false)
-	box.position = _px(Vector2(250, 200))
+func _dialog(title: String, tall := false) -> Control:
+	var box := Kit.dialog(Vector2(1900, 760 if tall else 640) * _u, title, false)
+	box.position = _px(Vector2(250, 110 if tall else 200))
 	add_child(box)
 	return box
 
 
 ## Seat i's centre inside the dialog (design px), for n players.
-func _seat_c(i: int, n: int) -> Vector2:
-	var step := 400.0
-	var x := 950.0 + (i - (n - 1) * 0.5) * step
-	if L.fa():
-		x = 1900.0 - x
-	return Vector2(x, 330)
+## `left`: a column on the left is taken (the room code); the seats share the rest.
+func _seat_c(i: int, n: int, left := 0.0) -> Vector2:
+	var step := minf(400.0, (1900.0 - left - 120.0) / maxf(n, 1))
+	var mid := left + (1900.0 - left) * 0.5
+	var k := (n - 1 - i) if L.fa() else i
+	return Vector2(mid + (k - (n - 1) * 0.5) * step, 330)
 
 
 ## One player's seat: the portrait in its gold frame, the name, the rating,
@@ -288,12 +289,15 @@ func show_net(net: NetGame) -> void:
 		_setup()
 		var phase := net.phase()
 		var waiting := phase == "waiting"
-		var box := _dialog(L.t("room_code") if waiting and net.room_code != "" else L.t("ready_title"))
+		var with_code := waiting and net.room_code != ""
+		var box := _dialog(L.t("room_code") if with_code else L.t("ready_title"))
 		var r: Rect2 = box.get_meta("content")
 		var top := r.position.y / _u
 		if waiting and net.room_code != "":
-			_text(box, net.room_code, TS.NUM_XL * 1.4, Kit.GOLD, "num", Rect2(0, top - 20, 1900, 110))
-			_text(box, L.t("room_waiting"), TS.BODY, Kit.IVORY, "serif", Rect2(0, top + 80, 1900, 50))
+			# the code on the left, the seats on the right
+			var hint := _text(box, L.t("room_waiting"), TS.BODY, Kit.IVORY, "serif", Rect2(70, top + 40, CODE_COL - 70, 130))
+			hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			_code_button(box, net.room_code, Vector2(70 + (CODE_COL - 70 - 560.0) * 0.5, top + 200))
 		else:
 			_text(box, L.t("ready_tap") if not sent_ready[0] else L.t("ready_gather"), TS.BODY, Kit.IVORY, "serif",
 					Rect2(0, top - 10, 1900, 50))
@@ -304,7 +308,7 @@ func show_net(net: NetGame) -> void:
 		_status.clear()
 		for i in n:
 			var sd: Dictionary = seats[i]
-			var c := _seat_c(i, n) + Vector2(0, 60 if waiting else 0)
+			var c := _seat_c(i, n, CODE_COL if with_code else 0.0)
 			if sd["open"] or String(sd["name"]) == "":
 				var h := Control.new()
 				h.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -363,6 +367,51 @@ func show_net(net: NetGame) -> void:
 			draw.call()
 	_running = false
 	_close()
+
+
+## The room code on a plate: tap it to copy it (a toast says so), ready to
+## paste into a chat.
+func _code_button(box: Control, code: String, at: Vector2) -> void:
+	var w := 560.0
+	var h := 112.0
+	var b := Button.new()
+	b.focus_mode = Control.FOCUS_NONE
+	Kit._empty_styles(b)
+	b.size = Vector2(w, h) * _u
+	b.position = at * _u
+	box.add_child(b)
+	var field := Kit.tex("input_field")
+	if field:
+		b.add_child(Kit.strip(field, b.size, 0.08))
+	var spaced := code.substr(0, 3) + " " + code.substr(3)
+	_text(b, spaced, TS.NUM_L, Kit.INK_DARK, "num", Rect2(40, 0, w - 170, h))
+	var icon := Kit.tex("icon_copy")
+	var hint := _text(b, L.t("copy"), TS.CAPTION, Color(0.35, 0.25, 0.12), "sans_bold", Rect2(w - 150, 0, 110, h))
+	if icon:
+		hint.visible = false
+		var ic := TextureRect.new()
+		ic.texture = icon
+		ic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		ic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		ic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		ic.position = Vector2(w - 120, (h - 60) * 0.5) * _u
+		ic.size = Vector2(60, 60) * _u
+		b.add_child(ic)
+	Kit.feedback(b)
+	b.pressed.connect(func():
+		DisplayServer.clipboard_set(code)
+		hint.text = L.t("copied")
+		hint.visible = true
+		_toast(L.t("code_copied")))
+
+
+## A short note at the bottom of the screen.
+func _toast(t: String) -> void:
+	var l := _text(self, t, TS.BODY, Kit.IVORY, "serif_bold", Rect2(0, 1000, D.x, 60))
+	var tw := l.create_tween()
+	tw.tween_interval(1.6)
+	tw.tween_property(l, "modulate:a", 0.0, 0.4)
+	tw.tween_callback(l.queue_free)
 
 
 func mx_left() -> float:

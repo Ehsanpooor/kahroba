@@ -96,7 +96,9 @@ func mx(x: float, w: float, total := D.x) -> float:
 
 ## The backdrop: the painted menu hall or the plain leather screen, covering
 ## the whole window, darkened by `dim`.
-func backdrop(name := "screen_bg", dim := 0.0) -> void:
+## The screen's painted background. `mirror` flips it left to right (the
+## menu in Persian, whose buttons sit on the other side).
+func backdrop(name := "screen_bg", dim := 0.0, mirror := false) -> void:
 	var bg := ColorRect.new()
 	bg.color = Color(0.03, 0.04, 0.035)
 	bg.size = vp
@@ -112,6 +114,7 @@ func backdrop(name := "screen_bg", dim := 0.0) -> void:
 		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 		tr.size = vp
+		tr.flip_h = mirror
 		tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(tr)
 	if dim > 0.0:

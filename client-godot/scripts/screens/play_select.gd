@@ -9,7 +9,7 @@ const MODES := [
 	{"key": "friends", "style": "ruby", "gem": "red", "icon": "friends"},
 ]
 const DIFF := ["easy", "normal", "hard"]
-const WIN := [15, 18, 21]
+const WIN := [15, 18, 21, 25, 30]
 
 
 func build() -> void:
@@ -25,7 +25,10 @@ func build() -> void:
 		Net.changed.connect(_on_net)
 	if arg is int and not has_meta("opened"):  # test: --screen=play:1 opens a dialog
 		set_meta("opened", true)
-		_open.call_deferred(["online", "ai", "friends"][int(arg)])
+		if int(arg) == 3:  # --screen=play:3 opens the room-code keypad
+			_join_dialog.call_deferred()
+		else:
+			_open.call_deferred(["online", "ai", "friends"][int(arg)])
 
 
 func _card(m: Dictionary, pos: Vector2) -> void:
@@ -95,7 +98,8 @@ func _open(key: String) -> void:
 	var chip := Vector2(250, 96)
 	var row := func(title: String, options: Array, sel: int, on_pick: Callable) -> void:
 		dialog_text(box, title, TS.LABEL, Kit.MUTED, "serif_bold", Rect2(0, yy[0], w, 56))
-		var t := Kit.tabs(options, sel, chip * u, 24.0 * u, on_pick)
+		var c := chip if options.size() <= 3 else Vector2(200, 96)  # five targets share the row
+		var t := Kit.tabs(options, sel, c * u, 20.0 * u, on_pick)
 		in_dialog(box, t, Vector2((w - t.size.x / u) * 0.5, yy[0] + 64))
 		yy[0] += 176.0
 	if key == "ai":
@@ -135,7 +139,7 @@ func _open(key: String) -> void:
 	go_b.pressed.connect(func():
 		close_dialog()
 		var game := {"mode": key, "players": int(choice["players"]), "difficulty": DIFF[int(choice["difficulty"])],
-				"win_points": 15 if key == "online" else WIN[int(choice["win"])]}
+				"win_points": 18 if key == "online" else WIN[int(choice["win"])]}
 		if key == "online":
 			if _guard_net():
 				_search(int(choice["players"]))
@@ -221,7 +225,7 @@ func _search(players: int) -> void:
 		close_dialog()
 		_fail(L.t("in_a_game") if int(r["code"]) == 9 else "")
 		return
-	var game := {"mode": "online", "players": players, "win_points": 15}
+	var game := {"mode": "online", "players": players, "win_points": 18}
 	if String(r["data"].get("refillMatchId", "")) != "":
 		await _enter(String(r["data"]["refillMatchId"]), "", game)
 		return
@@ -282,58 +286,139 @@ func _create_room(players: int, win: int) -> void:
 			"code": String(r["data"].get("code", ""))})
 
 
-## Type a friend's room code (Persian digits are turned into English ones).
+## Type a friend's room code on the game's own keypad (the phone's keyboard
+## would cover the dialog): six slots on the left, the keys on the right.
+## A hardware keyboard types too, and Paste takes a code from the clipboard.
+var _pin_key := Callable()
+
+
 func _join_dialog() -> void:
-	var box := dialog(Vector2(1100, 640), L.t("room_join"))
+	var box := dialog(Vector2(1640, 760), L.t("room_join"))
 	var w := dialog_w(box)
-	dialog_text(box, L.t("room_code_ask"), TS.LABEL, Kit.IVORY, "serif", Rect2(0, 0, w, 70))
-	var fw := 640.0
+	var code := [""]
+	var left_w := 820.0
+	var lx := 0.0 if not L.fa() else w - left_w
+	var kx := left_w + 40.0 if not L.fa() else 0.0
+	dialog_text(box, L.t("room_code_ask"), TS.LABEL, Kit.IVORY, "serif", Rect2(lx, 0, left_w, 70))
+	# the code on one long ivory plate: six places in two groups of three
+	# (digits always read left to right); an empty place shows a faint dot
+	var plate_w := 700.0
+	var px0 := lx + (left_w - plate_w) * 0.5
 	var field := Kit.tex("input_field")
 	if field:
-		in_dialog(box, Kit.strip(field, Vector2(fw, 140) * u, 0.08), Vector2((w - fw) * 0.5, 90))
-	var le := LineEdit.new()
-	le.max_length = 6
-	le.alignment = HORIZONTAL_ALIGNMENT_CENTER
-	le.virtual_keyboard_type = LineEdit.KEYBOARD_TYPE_NUMBER
-	le.placeholder_text = "000000"
-	le.add_theme_font_override("font", Fonts.get_font("num"))
-	le.add_theme_font_size_override("font_size", int(TS.NUM_L * 1.6 * u))
-	le.add_theme_color_override("font_color", Kit.INK_DARK)
-	le.add_theme_color_override("font_placeholder_color", Color(0.45, 0.38, 0.3, 0.6))
-	le.add_theme_color_override("caret_color", Kit.INK_DARK)
-	for st in ["normal", "focus", "read_only"]:
-		le.add_theme_stylebox_override(st, StyleBoxEmpty.new())
-	in_dialog(box, le, Vector2((w - fw) * 0.5 + 40, 102), Vector2(fw - 80, 116))
-	var go_b := Kit.button(L.t("join"), Vector2(440, 124) * u, "emerald", "", 44.0 * u)
-	go_b.position = Vector2((box.size.x - go_b.size.x) * 0.5, box.size.y - go_b.size.y - 40 * u)
-	box.add_child(go_b)
-	Kit.set_enabled(go_b, false)
-	var fa_digits := "۰۱۲۳۴۵۶۷۸۹"
-	le.text_changed.connect(func(t: String):
-		var digits := ""
-		for ch in t:
-			if ch >= "0" and ch <= "9":
-				digits += ch
-			elif fa_digits.contains(ch):
-				digits += str(fa_digits.find(ch))
-		if digits != t:
-			le.text = digits
-			le.caret_column = digits.length()
-		Kit.set_enabled(go_b, digits.length() == 6))
+		in_dialog(box, Kit.strip(field, Vector2(plate_w, 130) * u, 0.08), Vector2(px0, 105))
+	var slots: Array[Label] = []
+	var cell := 78.0
+	var inner := cell * 6 + 40.0
+	for k in 6:
+		var x := px0 + (plate_w - inner) * 0.5 + k * cell + (40.0 if k >= 3 else 0.0)
+		slots.append(dialog_text(box, "", TS.NUM_L, Kit.INK_DARK, "num", Rect2(x, 105, cell, 130)))
+	var go_b := Kit.button(L.t("join"), Vector2(460, 130) * u, "emerald", "", 46.0 * u)
+	in_dialog(box, go_b, Vector2(lx + (left_w - 460) * 0.5, 330))
+	var note := dialog_text(box, "", TS.BODY, Color(0.95, 0.66, 0.45), "serif", Rect2(lx, 260, left_w, 50))
+	var show := func():
+		for k in 6:
+			var has: bool = k < code[0].length()
+			slots[k].text = code[0][k] if has else "·"
+			slots[k].modulate.a = 1.0 if has else 0.35
+		Kit.set_enabled(go_b, code[0].length() == 6)
 	var join := func():
-		var code := le.text
-		if code.length() != 6:
+		if code[0].length() != 6:
 			return
+		_pin_key = Callable()
 		close_dialog()
 		_busy_dialog(L.t("room_join"), L.t("room_joining"), func(): pass)
 		await Api.sync_profile()
-		var r := await Api.rpc_call("join_by_code", {"code": code})
+		var r := await Api.rpc_call("join_by_code", {"code": code[0]})
 		if not r["ok"]:
 			close_dialog()
 			var why := L.t("in_a_game") if int(r["code"]) == 9 else (L.t("room_not_found") if int(r["code"]) in [3, 5] else "")
 			_fail(why)
 			return
-		await _enter(String(r["data"].get("matchId", "")), "", {"mode": "friends", "players": 0, "code": code})
+		await _enter(String(r["data"].get("matchId", "")), "", {"mode": "friends", "players": 0, "code": code[0]})
+	var fa_digits := "۰۱۲۳۴۵۶۷۸۹"
+	var add_text := func(t: String):
+		for ch in t:
+			if code[0].length() >= 6:
+				break
+			if ch >= "0" and ch <= "9":
+				code[0] += ch
+			elif fa_digits.contains(ch):
+				code[0] += str(fa_digits.find(ch))
+		note.text = ""
+		show.call()
+	var press := func(key: String):
+		match key:
+			"del":
+				code[0] = code[0].left(maxi(code[0].length() - 1, 0))
+				show.call()
+			"paste":
+				var clip := DisplayServer.clipboard_get()
+				code[0] = ""
+				add_text.call(clip)
+				if code[0].is_empty():
+					note.text = L.t("paste_none")
+			"enter":
+				join.call()
+			_:
+				add_text.call(key)
+	# the keypad: 1-9, then Paste, 0, Delete
+	var key := Vector2(164, 124)
+	var gap := Vector2(22, 14)
+	var keys := ["1", "2", "3", "4", "5", "6", "7", "8", "9", "paste", "0", "del"]
+	var kw := key.x * 3 + gap.x * 2
+	var kx0 := kx + (w - left_w - 40.0 - kw) * 0.5
+	for k in keys.size():
+		var kname: String = keys[k]
+		var col := k % 3
+		var pos := Vector2(kx0 + col * (key.x + gap.x), 10 + (k / 3) * (key.y + gap.y))
+		var b: Button
+		if kname == "del":
+			b = Kit._art_button(Kit.tex("btn_arrow_left"), key.y * u)
+			in_dialog(box, b, pos + Vector2((key.x - key.y) * 0.5, 0))
+		else:
+			b = Button.new()
+			b.focus_mode = Control.FOCUS_NONE
+			Kit._empty_styles(b)
+			b.size = key * u
+			var art := Kit.tex("btn_square_onyx")
+			if art:
+				var tr := TextureRect.new()
+				tr.texture = art
+				tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+				tr.stretch_mode = TextureRect.STRETCH_SCALE
+				tr.size = b.size
+				tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+				b.add_child(tr)
+			var paste := kname == "paste"
+			var lab := Kit.label(L.t("paste") if paste else kname, (TS.BODY if paste else TS.NUM_L) * u, Kit.GOLD,
+					"sans_bold" if paste else "num", b.size.x)
+			lab.size = b.size
+			lab.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			lab.position.y -= float(lab.get_meta("shift", 0.0))
+			b.add_child(lab)
+			Kit.feedback(b)
+			in_dialog(box, b, pos)
+		b.pressed.connect(press.bind(kname))
 	go_b.pressed.connect(join)
-	le.text_submitted.connect(func(_t: String): join.call())
-	le.grab_focus.call_deferred()
+	show.call()
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--pin="):  # test: type a code on the keypad
+			for ch in a.get_slice("=", 1):
+				press.call(ch)
+	# a hardware keyboard (desktop) types into the slots
+	_pin_key = func(e: InputEventKey):
+		if e.keycode == KEY_BACKSPACE:
+			press.call("del")
+		elif e.keycode == KEY_ENTER or e.keycode == KEY_KP_ENTER:
+			press.call("enter")
+		elif e.keycode == KEY_V and e.ctrl_pressed:
+			press.call("paste")
+		elif e.unicode > 0:
+			add_text.call(char(e.unicode))
+
+
+func _unhandled_key_input(e: InputEvent) -> void:
+	if _pin_key.is_valid() and e is InputEventKey and (e as InputEventKey).pressed and _dialog != null:
+		_pin_key.call(e)
+		get_viewport().set_input_as_handled()

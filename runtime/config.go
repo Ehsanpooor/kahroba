@@ -25,7 +25,7 @@ var (
 	// WinThreshold is the Power that starts the final round. Rated games
 	// always use it; unrated ones (private, AI) may pick one of
 	// WinThresholdOptions when they are created.
-	WinThreshold = getEnvInt("WIN_THRESHOLD", 15)
+	WinThreshold = getEnvInt("WIN_THRESHOLD", 18)
 
 	// MatchTickHz is how often the match loop runs. It bounds how long a
 	// player waits for their action to be acknowledged, so 1 Hz felt sluggish

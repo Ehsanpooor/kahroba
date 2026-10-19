@@ -37,7 +37,7 @@ services:
       # runtime/config.go; set them here to change behaviour without a rebuild.
       TURN_SECONDS: "90"
       TURN_GRACE_SECONDS: "2"
-      WIN_THRESHOLD: "15"
+      WIN_THRESHOLD: "18" # rated online games; private and AI games choose 15/18/21/25/30
       MATCH_TICK_HZ: "5"
       LOBBY_WAIT_SECONDS: "300" # friends need time to type a room code
       MATCHMAKER_TIMEOUT_SECONDS: "60"
