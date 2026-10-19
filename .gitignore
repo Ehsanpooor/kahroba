@@ -1,0 +1,40 @@
+# Godot
+client-godot/.godot/
+client-godot/build/
+client-godot/android/
+*.apk
+*.apk.idsig
+*.aab
+*.exe
+*.pck
+export_credentials.cfg
+
+# secrets (the server's .env is created on the server by deploy.sh)
+.env
+*.keystore
+*.jks
+*.pem
+
+# large or local-only folders
+_asset_backup/
+output/
+art/
+new gen/
+
+# the first game this project grew from (kept locally, not part of Splendor)
+client/
+DRAGONKIN.md
+MERFOLK.md
+VOID-BORN.md
+GAME_DESIGN_DOCUMENT.md
+GAME_DESIGN_DOCUMENT_v2.md
+FRONTEND_GUIDE.md
+REVIEW_2026-09-05.md
+REVIEW_2026-09-05.html
+elvs-prompts.md
+
+# tools
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db

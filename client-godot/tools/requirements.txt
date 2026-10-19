@@ -1,0 +1,6 @@
+pillow
+numpy
+rembg
+onnxruntime
+transformers
+torch

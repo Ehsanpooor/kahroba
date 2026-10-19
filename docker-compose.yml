@@ -1,0 +1,86 @@
+name: splendor
+# Local development stack.
+# Copy .env.example to .env and change every secret before exposing this to a
+# network. The defaults below are Nakama's published ones and are public knowledge.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: splendor-postgres
+    environment:
+      POSTGRES_DB: nakama
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-localdev}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d nakama"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - splendor-net
+
+  nakama:
+    # Built from ./Dockerfile: Nakama loads a compiled .so plugin, so the Go
+    # source in runtime/ has to be compiled by the matching pluginbuilder image
+    # before the server can see it. Mounting the source directory does nothing.
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: splendor/nakama:local
+    container_name: splendor-nakama
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Game rules and pacing (BACKEND_DOC §18). Every value has a default in
+      # runtime/config.go; set them here to change behaviour without a rebuild.
+      TURN_SECONDS: "90"
+      TURN_GRACE_SECONDS: "2"
+      WIN_THRESHOLD: "15"
+      MATCH_TICK_HZ: "5"
+      LOBBY_WAIT_SECONDS: "300" # friends need time to type a room code
+      MATCHMAKER_TIMEOUT_SECONDS: "60"
+      PROVISIONAL_GAMES: "10"
+      ABANDON_MISS_LIMIT: "3"
+      MAX_RESERVE: "3"
+      COIN_HOLD_LIMIT: "10"
+    entrypoint:
+      - "/bin/sh"
+      - "-ecx"
+      - >
+        /nakama/nakama migrate up --database.address postgres:${POSTGRES_PASSWORD:-localdev}@postgres:5432/nakama
+        && exec /nakama/nakama --name splendor
+        --database.address postgres:${POSTGRES_PASSWORD:-localdev}@postgres:5432/nakama
+        --logger.level ${NAKAMA_LOG_LEVEL:-INFO}
+        --session.token_expiry_sec 7200
+        --socket.server_key ${NAKAMA_SERVER_KEY:-splendor-tester-2026}
+        --session.encryption_key ${NAKAMA_SESSION_KEY:-defaultencryptionkey}
+        --session.refresh_encryption_key ${NAKAMA_REFRESH_KEY:-defaultrefreshkey}
+        --console.username ${NAKAMA_CONSOLE_USER:-admin}
+        --console.password ${NAKAMA_CONSOLE_PASSWORD:-password}
+        --runtime.path /nakama/data/modules
+    healthcheck:
+      test: ["CMD", "/nakama/nakama", "healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      # Splendor runs beside Veynoria on the same machine, so it takes the
+      # 7450 range: HTTP API and the realtime socket (/ws) share one port.
+      # Bound to localhost: players reach it through nginx (HTTPS) only.
+      - "127.0.0.1:${SPLENDOR_PORT:-7450}:7350"
+      # The admin console is bound to localhost only. It has full access to
+      # every account and to raw storage, so it must never be reachable from
+      # the internet: reach it over an SSH tunnel, not a published port.
+      - "127.0.0.1:${SPLENDOR_CONSOLE_PORT:-7451}:7351"
+    networks:
+      - splendor-net
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+
+networks:
+  splendor-net:
+    driver: bridge
