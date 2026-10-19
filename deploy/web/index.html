@@ -2,83 +2,320 @@
 <html lang="fa" dir="rtl">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Splendor · اسپلندور</title>
-<meta name="description" content="Splendor — the gem merchants. Download the Android test build.">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>اسپلندور — بازرگانان جواهر</title>
+<meta name="description" content="اسپلندور، بازی استراتژیک تجارت جواهر برای اندروید: آنلاین، با دوستان یا در برابر کامپیوتر. دانلود رایگان.">
+<meta name="theme-color" content="#0b0a08">
+<meta property="og:title" content="اسپلندور — بازرگانان جواهر">
+<meta property="og:description" content="جواهر جمع کنید، کارت بخرید، نجیب‌زادگان را به دیدار خود بیاورید. دانلود رایگان برای اندروید.">
+<meta property="og:image" content="https://splendor.mspink.ir/img/og.jpg">
 <link rel="icon" href="icon.png">
-<style>
-  :root {
-    --gold: #e7c27a;
-    --gold-deep: #b8873a;
-    --ivory: #f3e9d4;
-    --muted: #c9b99a;
-    --ink: #1b1309;
-    --panel: rgba(16, 12, 8, 0.82);
-  }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; min-height: 100%; }
-  body {
-    background: #0b0b0a url("bg.jpg") center / cover fixed no-repeat;
-    color: var(--ivory);
-    font-family: Vazirmatn, "Segoe UI", Tahoma, sans-serif;
-    display: flex; align-items: center; justify-content: center;
-    min-height: 100vh; padding: 24px 16px;
-  }
-  main {
-    width: 100%; max-width: 560px; text-align: center;
-    background: var(--panel);
-    border: 2px solid var(--gold-deep);
-    border-radius: 18px;
-    padding: 28px 22px 26px;
-    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6);
-  }
-  .logo { width: 100%; max-width: 420px; height: auto; display: block; margin: 0 auto 6px; }
-  .sub { color: var(--muted); margin: 0 0 22px; font-size: 1.05rem; }
-  .download {
-    display: inline-block; text-decoration: none;
-    background: linear-gradient(#2f7d3a, #1d5a26);
-    color: #fff4d6; font-weight: 700; font-size: 1.25rem;
-    padding: 16px 34px; border-radius: 14px;
-    border: 2px solid var(--gold);
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
-  }
-  .download:active { transform: translateY(1px); }
-  .meta { color: var(--muted); font-size: 0.9rem; margin: 12px 0 0; direction: ltr; }
-  h2 { color: var(--gold); font-size: 1.1rem; margin: 26px 0 8px; }
-  ol { text-align: right; line-height: 1.9; margin: 0 auto; padding-right: 22px; max-width: 460px; }
-  .en { direction: ltr; text-align: left; color: var(--muted); font-size: 0.92rem; margin-top: 22px;
-        border-top: 1px solid rgba(231, 194, 122, 0.25); padding-top: 14px; line-height: 1.7; }
-</style>
+<link rel="preload" href="fonts/vazirmatn.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/digits.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="style.css?v=1">
 </head>
 <body>
-<main>
-  <img class="logo" src="logo.png" alt="Splendor">
-  <p class="sub">بازرگانان جواهر — نسخهٔ آزمایشی اندروید</p>
+<div class="grain" aria-hidden="true"></div>
 
-  <a class="download" href="download/splendor.apk" download>دانلود برای اندروید</a>
-  <p class="meta" id="meta">Android · v0.9.2</p>
+<!-- the bar that follows you once the hero has gone -->
+<header class="topbar" id="topbar">
+  <a class="topbar__brand" href="#top" aria-label="اسپلندور">
+    <img src="img/logo.webp" alt="" width="1200" height="383">
+  </a>
+  <a class="btn btn--small" href="download/splendor.apk" download>دانلود</a>
+</header>
 
-  <h2>نصب</h2>
-  <ol>
-    <li>روی «دانلود برای اندروید» بزنید.</li>
-    <li>فایل <b>splendor.apk</b> را باز کنید.</li>
-    <li>اگر گوشی پرسید، «نصب از منابع ناشناس» را برای مرورگر اجازه دهید.</li>
-    <li>اگر پیام <b>Google Play Protect</b> آمد: روی <b>More details</b> بزنید و بعد <b>Install anyway</b> (نصب در هر صورت). این پیام برای همهٔ بازی‌هایی است که از بیرون Google Play نصب می‌شوند.</li>
-    <li>بازی را باز کنید، زبان و نام و چهره‌تان را انتخاب کنید و بازی کنید.</li>
+<main id="top">
+
+<!-- 1. hero -->
+<section class="hero" id="hero">
+  <div class="hero__bg" data-speed="0.35">
+    <picture>
+      <source media="(min-width: 900px)" srcset="img/hero_wide.webp">
+      <img src="img/hero_mobile.webp" alt="" fetchpriority="high">
+    </picture>
+  </div>
+  <div class="hero__candle" aria-hidden="true"></div>
+  <div class="hero__shade" aria-hidden="true"></div>
+
+  <div class="hero__gems" aria-hidden="true">
+    <img class="fgem fgem--1" src="img/gem_green.webp" data-speed="-0.25" alt="">
+    <img class="fgem fgem--2" src="img/gem_red.webp" data-speed="-0.45" alt="">
+    <img class="fgem fgem--3" src="img/gem_blue.webp" data-speed="-0.15" alt="">
+    <img class="fgem fgem--4" src="img/gem_white.webp" data-speed="-0.6" alt="">
+    <img class="fgem fgem--5" src="img/gem_black.webp" data-speed="-0.3" alt="">
+  </div>
+
+  <div class="hero__content">
+    <p class="eyebrow hero__in" style="--d:0">بازرگانان جواهر</p>
+    <h1 class="hero__logo hero__in" style="--d:1">
+      <img src="img/logo.webp" alt="اسپلندور" width="1200" height="383">
+    </h1>
+    <p class="hero__title hero__in" style="--d:2">ثروت، با یک جواهر<br>شروع می‌شود.</p>
+    <p class="hero__lead hero__in" style="--d:3">
+      بازی استراتژیک تجارت جواهر در ونیزِ رنسانس. جواهر جمع کنید، کارگاه‌ها را بخرید
+      و نجیب‌زادگان را به دیدار خود بیاورید.
+    </p>
+    <div class="hero__cta hero__in" style="--d:4">
+      <a class="btn btn--gold" href="download/splendor.apk" download>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M5 21h14"/></svg>
+        دانلود رایگان برای اندروید
+      </a>
+      <span class="meta">نسخهٔ 0.9.2 &nbsp;•&nbsp; حدود 45 مگابایت</span>
+    </div>
+  </div>
+
+  <a class="scrollcue" href="#story" aria-label="ادامه">
+    <span></span>
+  </a>
+</section>
+
+<!-- 2. a ribbon of gems -->
+<div class="ribbon" aria-hidden="true">
+  <div class="ribbon__track">
+    <span><img src="img/tok_white.webp" alt="">الماس</span>
+    <span><img src="img/tok_blue.webp" alt="">یاقوت کبود</span>
+    <span><img src="img/tok_green.webp" alt="">زمرد</span>
+    <span><img src="img/tok_red.webp" alt="">یاقوت سرخ</span>
+    <span><img src="img/tok_black.webp" alt="">عقیق</span>
+    <span><img src="img/tok_white.webp" alt="">الماس</span>
+    <span><img src="img/tok_blue.webp" alt="">یاقوت کبود</span>
+    <span><img src="img/tok_green.webp" alt="">زمرد</span>
+    <span><img src="img/tok_red.webp" alt="">یاقوت سرخ</span>
+    <span><img src="img/tok_black.webp" alt="">عقیق</span>
+  </div>
+</div>
+
+<!-- 3. the story -->
+<section class="story" id="story">
+  <figure class="story__art reveal">
+    <img src="img/portrait_merchant.webp" alt="بازرگان جواهر زیر نور شمع" loading="lazy" data-speed="0.12">
+  </figure>
+  <div class="story__text">
+    <p class="eyebrow reveal">داستان</p>
+    <h2 class="h2 reveal" style="--d:1">ونیز، قرن شانزدهم.</h2>
+    <p class="words" data-words>
+      کاروان‌ها از ابریشم و ادویه پرند و کشتی‌ها از شرق، صندوق‌هایی از جواهر می‌آورند.
+      شما بازرگانی تازه‌کارید با یک میز کوچک و رؤیایی بزرگ. هر جواهری که برمی‌دارید،
+      هر کارگاهی که می‌خرید و هر کشتی‌ای که به نامتان لنگر می‌اندازد، شما را یک قدم
+      به دربار نزدیک‌تر می‌کند.
+    </p>
+  </div>
+</section>
+
+<!-- 3b. five gems orbit while you scroll -->
+<section class="orbit" id="orbit" aria-labelledby="orbit-title">
+  <div class="orbit__sticky">
+    <div class="orbit__ring" aria-hidden="true">
+      <img class="og" src="img/gem_white.webp" alt="">
+      <img class="og" src="img/gem_blue.webp" alt="">
+      <img class="og" src="img/gem_green.webp" alt="">
+      <img class="og" src="img/gem_red.webp" alt="">
+      <img class="og" src="img/gem_black.webp" alt="">
+    </div>
+    <div class="orbit__text">
+      <p class="eyebrow">پنج جواهر</p>
+      <h2 class="h2" id="orbit-title">یک امپراتوری</h2>
+      <p class="orbit__name" aria-live="polite"><span>الماس</span></p>
+    </div>
+  </div>
+</section>
+
+<!-- 4. how to play, pinned while you scroll -->
+<section class="how" id="how" aria-labelledby="how-title">
+  <div class="how__sticky">
+    <div class="how__head">
+      <p class="eyebrow">چطور بازی می‌شود</p>
+      <h2 class="h2" id="how-title">در چهار قدم، استاد تجارت شوید</h2>
+    </div>
+
+    <div class="how__stage" aria-hidden="true">
+      <div class="scene scene--1">
+        <img class="tok t1" src="img/tok_red.webp" alt="">
+        <img class="tok t2" src="img/tok_blue.webp" alt="">
+        <img class="tok t3" src="img/tok_green.webp" alt="">
+      </div>
+      <div class="scene scene--2">
+        <img class="card" src="img/card.webp" alt="">
+      </div>
+      <div class="scene scene--3">
+        <img class="nob n1" src="img/noble_01.webp" alt="">
+        <img class="nob n2" src="img/noble_07.webp" alt="">
+        <img class="nob n3" src="img/noble_09.webp" alt="">
+      </div>
+      <div class="scene scene--4">
+        <div class="bignum"><span data-count="18">0</span><small>امتیاز</small></div>
+      </div>
+    </div>
+
+    <ol class="how__steps">
+      <li class="step">
+        <b>جواهر جمع کنید</b>
+        <span>در نوبت خود 3 جواهر متفاوت، یا 2 جواهر از یک رنگ بردارید.</span>
+      </li>
+      <li class="step">
+        <b>کارت بخرید</b>
+        <span>هر کارت برای همیشه یک جواهر از رنگ خودش تخفیف می‌دهد؛ خیلی‌ها امتیاز هم دارند.</span>
+      </li>
+      <li class="step">
+        <b>نجیب‌زادگان می‌آیند</b>
+        <span>کارت‌های کافی از رنگ‌های یک نجیب‌زاده داشته باشید تا خودش به دیدارتان بیاید: 3 امتیاز.</span>
+      </li>
+      <li class="step">
+        <b>اولِ میز شوید</b>
+        <span>اولین کسی که به امتیاز هدف برسد، دور آخر را آغاز می‌کند. پرامتیازترین بازرگان می‌برد.</span>
+      </li>
+    </ol>
+
+    <div class="how__dots" aria-hidden="true">
+      <i style="--c:#e9e4d8"></i><i style="--c:#3b6fe0"></i><i style="--c:#2fb35c"></i><i style="--c:#d83a3a"></i>
+    </div>
+  </div>
+</section>
+
+<!-- 5. the game, framed -->
+<section class="gallery" id="gallery" aria-labelledby="gal-title">
+  <div class="section-head">
+    <p class="eyebrow reveal">درون بازی</p>
+    <h2 class="h2 reveal" id="gal-title" style="--d:1">میزی که از نزدیک می‌درخشد</h2>
+  </div>
+  <div class="gallery__track" id="galtrack">
+    <figure class="slide"><div class="frame"><img src="img/shot_board.webp" alt="میز بازی سه‌بعدی" loading="lazy"></div><figcaption>میز سه‌بعدی، با جواهر و کارت‌های نقاشی‌شده</figcaption></figure>
+    <figure class="slide"><div class="frame"><img src="img/shot_inspect.webp" alt="بررسی یک کارت" loading="lazy"></div><figcaption>هر کارت را از نزدیک ببینید و بخرید یا رزرو کنید</figcaption></figure>
+    <figure class="slide"><div class="frame"><img src="img/shot_nobles.webp" alt="انتخاب نجیب‌زاده" loading="lazy"></div><figcaption>نجیب‌زادگان تاریخی به دیدار شما می‌آیند</figcaption></figure>
+    <figure class="slide"><div class="frame"><img src="img/shot_results.webp" alt="پایان بازی" loading="lazy"></div><figcaption>پایان بازی، با مدال‌های طلا، نقره و برنز</figcaption></figure>
+    <figure class="slide"><div class="frame"><img src="img/shot_menu.webp" alt="منوی بازی" loading="lazy"></div><figcaption>بازی نیمه‌تمام؟ هر وقت خواستید ادامه دهید</figcaption></figure>
+  </div>
+  <div class="gallery__dots" id="galdots" aria-hidden="true"></div>
+</section>
+
+<!-- 6. three ways to play -->
+<section class="modes" aria-labelledby="modes-title">
+  <div class="section-head">
+    <p class="eyebrow reveal">سه راه بازی</p>
+    <h2 class="h2 reveal" id="modes-title" style="--d:1">با هر کس، هر جا</h2>
+  </div>
+  <div class="modes__grid">
+    <article class="mode reveal" style="--d:0; --gem:#3b6fe0">
+      <img src="img/mode_online.webp" alt="" loading="lazy">
+      <div class="mode__body">
+        <h3>آنلاین</h3>
+        <p>با بازرگانان واقعی بازی کنید و رتبه بگیرید. بازی‌های رتبه‌ای تا 18 امتیاز.</p>
+      </div>
+    </article>
+    <article class="mode reveal" style="--d:1; --gem:#d83a3a">
+      <img src="img/mode_friends.webp" alt="" loading="lazy">
+      <div class="mode__body">
+        <h3>با دوستان</h3>
+        <p>یک اتاق بسازید و کد 6 رقمی‌اش را برای دوستانتان بفرستید. 2 تا 4 نفر.</p>
+      </div>
+    </article>
+    <article class="mode reveal" style="--d:2; --gem:#2fb35c">
+      <img src="img/mode_computer.webp" alt="" loading="lazy">
+      <div class="mode__body">
+        <h3>با کامپیوتر</h3>
+        <p>بی‌اینترنت و با سرعت خودتان تمرین کنید؛ سه سطح سختی، تا 30 امتیاز.</p>
+      </div>
+    </article>
+  </div>
+</section>
+
+<!-- 7. the faces -->
+<section class="faces" aria-labelledby="faces-title">
+  <div class="section-head">
+    <p class="eyebrow reveal">30 چهره</p>
+    <h2 class="h2 reveal" id="faces-title" style="--d:1">چهرهٔ خود را انتخاب کنید</h2>
+    <p class="lead reveal" style="--d:2">از شاگرد بازرگان تا شاهزادهٔ تجارت؛ هر چه رتبه‌تان بالاتر برود، چهره‌های باشکوه‌تری باز می‌شوند.</p>
+  </div>
+  <div class="faces__rows" aria-hidden="true">
+    <div class="faces__row" data-drift="1">
+      <img src="img/face_01.webp" alt=""><img src="img/face_06.webp" alt=""><img src="img/face_11.webp" alt=""><img src="img/face_14.webp" alt=""><img src="img/face_18.webp" alt=""><img src="img/face_20.webp" alt=""><img src="img/face_24.webp" alt=""><img src="img/face_27.webp" alt=""><img src="img/face_30.webp" alt="">
+    </div>
+    <div class="faces__row" data-drift="-1">
+      <img src="img/face_30.webp" alt=""><img src="img/face_24.webp" alt=""><img src="img/face_18.webp" alt=""><img src="img/face_06.webp" alt=""><img src="img/face_27.webp" alt=""><img src="img/face_11.webp" alt=""><img src="img/face_01.webp" alt=""><img src="img/face_20.webp" alt=""><img src="img/face_14.webp" alt="">
+    </div>
+  </div>
+</section>
+
+<!-- 8. what's inside -->
+<section class="features" aria-labelledby="feat-title">
+  <div class="section-head">
+    <p class="eyebrow reveal">جزئیات</p>
+    <h2 class="h2 reveal" id="feat-title" style="--d:1">ساخته‌شده با وسواس</h2>
+  </div>
+  <ul class="features__grid">
+    <li class="feat reveal" style="--d:0">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12l3 6-9 12L3 9z M3 9h18 M9 3l3 6 3-6 M12 21 9 9 M12 21l3-12"/></svg>
+      <b>هنر دست‌ساز</b><span>کارت‌ها، چهره‌ها و میز، همه نقاشی شده‌اند.</span>
+    </li>
+    <li class="feat reveal" style="--d:1">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H4z M8 20h8 M12 16v4"/></svg>
+      <b>کاملاً فارسی</b><span>متن و راهنما به فارسی؛ انگلیسی هم در تنظیمات.</span>
+    </li>
+    <li class="feat reveal" style="--d:2">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9 M12 7v5l3 2 M17 3v4h4"/></svg>
+      <b>ادامه از همان‌جا</b><span>اینترنت قطع شد؟ جای شما تا 15 دقیقه نگه داشته می‌شود.</span>
+    </li>
+    <li class="feat reveal" style="--d:0">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 21h8 M12 17v4 M7 4h10v5a5 5 0 0 1-10 0z M7 6H4a3 3 0 0 0 3 4 M17 6h3a3 3 0 0 1-3 4"/></svg>
+      <b>رتبه‌بندی زنده</b><span>جدول برترین‌ها و تاریخچهٔ بازی‌هایتان.</span>
+    </li>
+    <li class="feat reveal" style="--d:1">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h3l2-6 4 12 2-6h5"/></svg>
+      <b>آموزش روی میز واقعی</b><span>در دو دقیقه، قدم‌به‌قدم بازی را یاد بگیرید.</span>
+    </li>
+    <li class="feat reveal" style="--d:2">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18 M5 8h14 M7 8l-3 7a4 4 0 0 0 6 0z M17 8l-3 7a4 4 0 0 0 6 0z"/></svg>
+      <b>هدف دلخواه</b><span>بازی تا 15، 18، 21، 25 یا 30 امتیاز.</span>
+    </li>
+  </ul>
+</section>
+
+<!-- 9. installing -->
+<section class="install" id="install" aria-labelledby="inst-title">
+  <div class="section-head">
+    <p class="eyebrow reveal">نصب</p>
+    <h2 class="h2 reveal" id="inst-title" style="--d:1">در کمتر از یک دقیقه</h2>
+  </div>
+  <ol class="install__steps">
+    <li class="istep reveal" style="--d:0"><i>1</i><div><b>دانلود</b><span>روی «دانلود برای اندروید» بزنید.</span></div></li>
+    <li class="istep reveal" style="--d:1"><i>2</i><div><b>باز کردن فایل</b><span>فایل <bdi>splendor.apk</bdi> را از بخش دانلودها باز کنید.</span></div></li>
+    <li class="istep reveal" style="--d:2"><i>3</i><div><b>اجازهٔ نصب</b><span>اگر گوشی پرسید، نصب از این منبع را برای مرورگر اجازه دهید.</span></div></li>
+    <li class="istep istep--note reveal" style="--d:3"><i>4</i><div><b>اگر Google Play Protect پیام داد</b><span>روی <bdi>More details</bdi> و سپس <bdi>Install anyway</bdi> بزنید. این پیام برای همهٔ بازی‌هایی است که بیرون از گوگل‌پلی نصب می‌شوند.</span></div></li>
   </ol>
+</section>
 
-  <h2>بازی با دوستان</h2>
-  <ol>
-    <li>بازی ← «با دوستان» ← «ساخت اتاق»؛ کد 6 رقمی را برای دوستتان بفرستید.</li>
-    <li>دوستتان: «با دوستان» ← «ورود با کد» و کد را وارد کند.</li>
-  </ol>
+<!-- 10. the final call -->
+<section class="final" id="final">
+  <div class="final__seal reveal">
+    <img src="img/seal.webp" alt="" loading="lazy" data-spin>
+    <img class="seal__gem" src="img/gem_green.webp" alt="" loading="lazy">
+  </div>
+  <h2 class="h2 final__title reveal" style="--d:1">میز آماده است.<br>جواهرها منتظر شما هستند.</h2>
+  <div class="final__cta reveal" style="--d:2">
+    <a class="btn btn--gold btn--big" href="download/splendor.apk" download>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M5 21h14"/></svg>
+      دانلود رایگان برای اندروید
+    </a>
+    <span class="meta">نسخهٔ 0.9.2 &nbsp;•&nbsp; اندروید 7 به بالا</span>
+  </div>
+</section>
 
-  <p class="en">
-    <b>English:</b> tap the button to download, open <b>splendor.apk</b>, allow installs from this source if
-    your phone asks, then play. If <b>Google Play Protect</b> blocks it, tap <b>More details</b>, then
-    <b>Install anyway</b> — it shows this for every app installed from outside Google Play. For a game with friends: Play → With friends → Open a room, and send them the
-    6-digit code; they choose Join with code.
-  </p>
 </main>
+
+<footer class="footer">
+  <img src="img/divider.webp" alt="" class="footer__divider" loading="lazy">
+  <p>اسپلندور — بازرگانان جواهر</p>
+  <p class="footer__small">موسیقی: Kevin MacLeod (incompetech.com، با مجوز CC BY 4.0) و RandomMind • صداها: Kenney</p>
+</footer>
+
+<!-- the download bar that stays on phones while you read -->
+<a class="dock" id="dock" href="download/splendor.apk" download>
+  <img src="icon.png" alt="" width="40" height="40">
+  <span><b>اسپلندور</b><small>نسخهٔ 0.9.2 • رایگان</small></span>
+  <em>دانلود</em>
+</a>
+
+<script src="app.js?v=1" defer></script>
 </body>
 </html>
