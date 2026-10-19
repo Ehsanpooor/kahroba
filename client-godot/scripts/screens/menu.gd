@@ -80,7 +80,7 @@ func build() -> void:
 		if not Net.changed.is_connected(_on_net):
 			Net.changed.connect(_on_net)
 
-	if not Prefs.get_v("tutorial_done") and not _offered and saved.is_empty():
+	if not Prefs.get_v("tutorial_done") and not Prefs.get_v("tutorial_offered") and not _offered and saved.is_empty():
 		_offered = true
 		get_tree().create_timer(0.7).timeout.connect(_offer_tutorial)
 
@@ -89,7 +89,7 @@ func _offer_tutorial() -> void:
 	if not is_inside_tree():
 		return
 	message(L.t("tut_title"), L.t("tut_body"), [
-		[L.t("later"), "onyx", func(): pass],
+		[L.t("later"), "onyx", func(): Prefs.set_v("tutorial_offered", true)],
 		[L.t("tut_start"), "emerald", func(): play.emit({"mode": "tutorial", "players": 2, "difficulty": "easy"})],
 	])
 

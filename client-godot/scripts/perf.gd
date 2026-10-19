@@ -1,0 +1,47 @@
+extends Node
+## Autoload "Perf": keeps phones cool. On a phone the game draws at most 60
+## frames a second while something is happening (a touch, an animation) and
+## 30 when the table is still; the 3D table renders at 75% resolution with
+## light anti-aliasing. Desktop builds are left exactly as they are.
+##
+## Anything that animates without a touch (an opponent's move, the deal)
+## calls `Perf.wake()` while it runs.
+
+const ACTIVE_FPS := 60
+const IDLE_FPS := 30
+const IDLE_AFTER := 2.5  # seconds after the last touch or animation
+
+var mobile := false
+var _awake_until := 0.0
+
+
+func _ready() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	mobile = OS.has_feature("mobile") or OS.get_cmdline_user_args().has("--phone-perf")
+	if not mobile:
+		return
+	var vp := get_viewport()
+	vp.msaa_3d = Viewport.MSAA_2X
+	vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
+	vp.scaling_3d_scale = 0.75
+	wake()
+
+
+## Draw at full rate for a while (something moves).
+func wake(seconds := IDLE_AFTER) -> void:
+	if not mobile:
+		return
+	_awake_until = maxf(_awake_until, Time.get_ticks_msec() / 1000.0 + seconds)
+	Engine.max_fps = ACTIVE_FPS
+
+
+func _input(e: InputEvent) -> void:
+	if mobile and (e is InputEventScreenTouch or e is InputEventScreenDrag or e is InputEventMouseButton):
+		wake()
+
+
+func _process(_delta: float) -> void:
+	if OS.get_cmdline_user_args().has("--perfdebug") and Engine.get_process_frames() % 60 == 0:
+		print("PERF fps=%d max=%d" % [Engine.get_frames_per_second(), Engine.max_fps])
+	if mobile and Engine.max_fps != IDLE_FPS and Time.get_ticks_msec() / 1000.0 > _awake_until:
+		Engine.max_fps = IDLE_FPS

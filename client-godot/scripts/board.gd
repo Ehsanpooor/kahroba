@@ -294,7 +294,7 @@ func _setup_world() -> void:
 	env.ambient_light_color = Color(0.55, 0.55, 0.62)
 	env.ambient_light_energy = 0.7
 	env.tonemap_mode = Environment.TONE_MAPPER_LINEAR
-	env.glow_enabled = true
+	env.glow_enabled = not Perf.mobile  # glow is a full-screen blur: desktop only
 	env.glow_intensity = 0.45
 	env.glow_strength = 1.0
 	env.glow_bloom = 0.0
@@ -756,7 +756,10 @@ func _fill_pile(st: ChipStack, n: int) -> void:
 func _process(delta: float) -> void:
 	_stage_follow(delta)
 	var t := Time.get_ticks_msec() / 1000.0
-	RenderingServer.global_shader_parameter_set("flicker", sin(t * 7.3) * 0.5 + sin(t * 13.1) * 0.3 + sin(t * 2.1) * 0.6)
+	if not Perf.mobile:  # the candle flicker; on phones the light stays steady
+		RenderingServer.global_shader_parameter_set("flicker", sin(t * 7.3) * 0.5 + sin(t * 13.1) * 0.3 + sin(t * 2.1) * 0.6)
+	if _busy > 0 or intro_running or not staged.is_empty() or (turn != 0 and net == null and not game_over):
+		Perf.wake(0.5)  # something moves on the table: full frame rate
 	if layout == null:
 		return
 	var hit := layout.screen_to_table(pointer) if pointer_inside else Vector3(0, -100, 0)

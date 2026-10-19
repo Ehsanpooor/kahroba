@@ -15,6 +15,7 @@ const DEFAULTS := {
 	"vibration": true,
 	"confirm_moves": true,  # Skip, short coin take and blind jail ask first
 	"tutorial_done": false,
+	"tutorial_offered": false,  # "Later" was chosen: the menu does not ask again
 	"onboarded": false,  # language, name and portrait chosen
 	"name": "",
 	"portrait": "A-01",  # a character id, or "custom" for the player's own photo
