@@ -22,7 +22,7 @@ func build() -> void:
 	var note := L.t("board_min", MIN_RATING) if mine < MIN_RATING else L.t("board_listed")
 	if not Net.online:
 		note = L.t("board_offline")
-	text(note, TS.CAPTION, Color(0.9, 0.66, 0.45), "serif", Rect2(0, 1032, D.x, 40))
+	text(note, TS.CAPTION, Color(0.9, 0.66, 0.45), "serif", Rect2(0, 1004, D.x, 40))  # clear of the frame
 	if Net.online:
 		_fetch()
 	if not Net.changed.is_connected(_on_net):
@@ -44,7 +44,7 @@ func build() -> void:
 	# you, pinned under the list
 	var pin := Control.new()
 	pin.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	put(pin, Vector2(LIST.position.x, LIST.end.y + 40), ROW)
+	put(pin, Vector2(LIST.position.x, LIST.end.y + 22), ROW)
 	_row(pin, my_rank, [Prefs.display_name(), String(Prefs.get_v("portrait")), mine, 0],
 			Vector2.ZERO, true)
 
