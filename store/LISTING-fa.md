@@ -61,7 +61,10 @@ ir.aizood.splendor
 - آیکون: `icon_512.png` (512×512)
 - تصویر شاخص: `feature_1024x500.png`
 - اسکرین‌شات‌ها: `screenshots/*.png` (1920×1080، افقی، فارسی)
-- فایل نصبی: `client-godot/build/android/splendor.apk` (امضاشده با کلید انتشار؛ APK چون بازار با آن بی‌دردسر کار می‌کند)
+- فایل‌های نصبی بازار (هر دو در یک انتشار؛ بازار به هر گوشی فایل مناسبش را می‌دهد):
+  - `client-godot/build/android/splendor-arm64.apk` (64 بیتی، کد نسخه N)
+  - `client-godot/build/android/splendor-armv7.apk` (32 بیتی، کد نسخه N-1)
+  - ساخت هر سه فایل: `client-godot/tools/build_android.sh` (برای نسخهٔ بعد، کد نسخه را 2 تا بالا ببرید)
 
 ## سیاست حریم خصوصی
 https://splendor.aizood.ir/privacy.html
