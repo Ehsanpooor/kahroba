@@ -25,6 +25,10 @@ func build() -> void:
 		Net.changed.connect(_on_net)
 	if Net.online and not Api.socket_ready():
 		Api.connect_socket()  # open the line now, so finding or joining a table starts at once
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--videoflow=") and not has_meta("videoflow"):  # test: drive this page (videos)
+			set_meta("videoflow", true)
+			_video_flow.call_deferred(a.get_slice("=", 1))
 	if arg is int and not has_meta("opened"):  # test: --screen=play:1 opens a dialog
 		set_meta("opened", true)
 		if int(arg) == 3:  # --screen=play:3 opens the room-code keypad
@@ -88,12 +92,32 @@ func _on_net(_online: bool) -> void:
 		_rebuild()
 
 
+## Test (store videos): `--videoflow=online:3` or `--videoflow=ai:3:hard` opens
+## that dialog with those choices a moment after the page shows, then presses
+## its main button, as a player would.
+var _go_btn: Button
+
+func _video_flow(spec: String) -> void:
+	var p := spec.split(":")
+	SavedGame.clear()  # a game left from an earlier recording would ask first
+	await get_tree().create_timer(1.8).timeout
+	var g: Dictionary = Prefs.game.duplicate()
+	g["players"] = int(p[1])
+	if p.size() > 2:
+		g["difficulty"] = p[2]
+	Prefs.game = g
+	_open(p[0])
+	await get_tree().create_timer(2.4).timeout
+	if _go_btn and is_instance_valid(_go_btn):
+		_go_btn.pressed.emit()
+
+
 func _open(key: String) -> void:
 	var g: Dictionary = Prefs.game.duplicate()
 	var choice := {"players": clampi(int(g.get("players", 4)), 2, 4),
 			"difficulty": maxi(DIFF.find(String(g.get("difficulty", "normal"))), 0),
 			"win": maxi(WIN.find(int(g.get("win_points", 15))), 0)}
-	var h: float = {"ai": 880.0, "friends": 760.0, "online": 580.0}[key]
+	var h: float = {"ai": 920.0, "friends": 790.0, "online": 600.0}[key]
 	var box := dialog(Vector2(1300, h), L.t("mode_" + key))
 	var w := dialog_w(box)
 	var yy := [0.0]  # shared with the lambda (lambdas copy plain locals)
@@ -102,8 +126,8 @@ func _open(key: String) -> void:
 		dialog_text(box, title, TS.LABEL, Kit.MUTED, "serif_bold", Rect2(0, yy[0], w, 56))
 		var c := chip if options.size() <= 3 else (Vector2(230, 96) if options.size() == 4 else Vector2(200, 96))
 		var t := Kit.tabs(options, sel, c * u, 20.0 * u, on_pick)
-		in_dialog(box, t, Vector2((w - t.size.x / u) * 0.5, yy[0] + 64))
-		yy[0] += 176.0
+		in_dialog(box, t, Vector2((w - t.size.x / u) * 0.5, yy[0] + 76))  # clear of the title's low letters
+		yy[0] += 188.0
 	if key == "ai":
 		row.call(L.t("opponents"), ["1", "2", "3"], choice["players"] - 2, func(i: int): choice["players"] = i + 2)
 		row.call(L.t("difficulty"), [L.t("easy"), L.t("normal"), L.t("hard"), L.t("very_hard")], choice["difficulty"],
@@ -139,6 +163,7 @@ func _open(key: String) -> void:
 		return
 	var label: String = {"online": L.t("find_match"), "ai": L.t("start")}[key]
 	var go_b := Kit.button(label, Vector2(560, 130) * u, "emerald")
+	_go_btn = go_b
 	go_b.position = Vector2((box.size.x - go_b.size.x) * 0.5, box.size.y - go_b.size.y - 40 * u)
 	box.add_child(go_b)
 	go_b.pressed.connect(func():

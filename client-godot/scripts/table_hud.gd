@@ -237,14 +237,26 @@ func build(layout: TLayout, me_p: Dictionary, opponents: Array, win: int) -> voi
 		seats.append(v)
 	if _col:
 		_col_set(_col_off)
+	# your panel and the turn clock sit on the screen's bottom edge, the other
+	# players on its left edge, whatever the screen's shape (the table between
+	# them is fitted whole and centred, which can leave a band at the edges)
+	var to_bottom := lay.origin.y
+	var to_left := -lay.origin.x
+	if not _col:  # (in the scrolling column the column itself moves)
+		for v in seats:
+			v.position.x += to_left
+	if _col:
+		_col.position.x += to_left
+		for d in _col_dots:
+			d.position.x += to_left
 	me_view = PlayerView.new()
 	me_view.setup(me, "me", s)
 	_root.add_child(me_view)
-	me_view.position = ME_POS * PlayerView.K * s
+	me_view.position = ME_POS * PlayerView.K * s + Vector2(0, to_bottom)
 	clock = TurnClock.new()
 	clock.setup(s)
 	_root.add_child(clock)
-	clock.position = CLOCK_POS * PlayerView.K * s
+	clock.position = CLOCK_POS * PlayerView.K * s + Vector2(0, to_bottom)
 	_build_top()
 	_build_stage()
 	_build_inspect()
@@ -344,7 +356,7 @@ func _build_top() -> void:
 func _build_stage() -> void:
 	# all centred under the cards
 	var cx := _cx()
-	var lbl := _text(_root, "", TS.LABEL, GOLD_LIGHT, "title_bold", Vector2(cx - 300, STAGE_Y - 30), 600.0,
+	var lbl := _text(_root, "", TS.LABEL, GOLD_LIGHT, "title_bold", Vector2(cx - 300, STAGE_Y - 46), 600.0,
 			HORIZONTAL_ALIGNMENT_CENTER, 3.0)
 	# the host's design: Skip (onyx) and Undo (emerald) under the board's left
 	# edge, Done (ivory, dark green letters) on the right; Josefin Sans
@@ -432,6 +444,23 @@ func show_inspect(on: bool, can_buy := true, can_reserve := true, note := "", go
 
 # ------------------------------------------------------------------ players
 
+## The players' places come to the table: the others slide in from the left
+## edge one after another, your panel and the turn clock rise from the bottom.
+func arrive() -> void:
+	modulate.a = 1.0
+	var tw := create_tween().set_parallel(true)
+	for i in seats.size():
+		var v := seats[i]
+		var x := v.position.x
+		v.position.x = x - v.size.x - 60.0 * s
+		tw.tween_property(v, "position:x", x, 0.5).set_delay(i * 0.09).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	for c in [me_view, clock]:
+		var y: float = c.position.y
+		c.position.y = y + c.size.y + 120.0 * s
+		tw.tween_property(c, "position:y", y, 0.55).set_delay(0.15).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	await tw.finished
+
+
 func update_opponent(i: int) -> void:
 	if i >= 0 and i < seats.size():
 		seats[i].refresh(true)
@@ -466,6 +495,7 @@ func _show_turn() -> void:
 	show_seat(turn - 1)
 	if _round:
 		_round.text = L.t("round", round_no)
+	_stop_after_round()
 
 
 func _process(_delta: float) -> void:
@@ -600,14 +630,15 @@ func banner(text: String, mine: bool) -> void:
 func announce(line1: String, line2: String, mine: bool, dur := 1.6) -> void:
 	if _announce and is_instance_valid(_announce):
 		_announce.queue_free()
+	# the plate's frame takes about 30 px top and bottom: both lines sit inside its band
 	var w := 1120.0
-	var h := 190.0
+	var h := 236.0
 	var c := Control.new()
 	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_put(_root, c, Vector2(_cx() - w * 0.5, 96), Vector2(w, h))
+	_put(_root, c, Vector2(_cx() - w * 0.5, 90), Vector2(w, h))
 	c.add_child(Kit.plate("emerald" if mine else "sapphire", c.size))
-	_text(c, line1, TS.BODY, Kit.IVORY, "serif_bold", Vector2(w * 0.12, 34), w * 0.76)
-	_text(c, line2, TS.TITLE, Kit.GOLD, "title_bold", Vector2(w * 0.12, 86), w * 0.76, HORIZONTAL_ALIGNMENT_CENTER, 3.0)
+	_text(c, line1, TS.BODY, Kit.IVORY, "serif_bold", Vector2(w * 0.12, 40), w * 0.76)
+	_text(c, line2, TS.TITLE * 0.92, Kit.GOLD, "title_bold", Vector2(w * 0.12, 94), w * 0.76, HORIZONTAL_ALIGNMENT_CENTER, 3.0)
 	_announce = c
 	c.modulate.a = 0.0
 	c.position.y -= 20.0 * s
@@ -938,3 +969,19 @@ func show_results(rows: Array, title: String, mine_won: bool, on_again: Callable
 	var x0 := (w - 380.0 - 300.0 - 40.0) * 0.5
 	_put(box, again, Vector2(x0 + (340.0 if L.fa() else 0.0), y2), Vector2(380, 116))
 	_put(box, menu, Vector2(x0 + (0.0 if L.fa() else 420.0), y2), Vector2(300, 116))
+
+
+## Test (store videos): `--stop-after-round=N` closes the app a moment after
+## round N is over, so a recording ends there.
+var _stopping := false
+
+func _stop_after_round() -> void:
+	if _stopping:
+		return
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--stop-after-round=") and round_no > int(a.get_slice("=", 1)):
+			_stopping = true
+			print("VIDEOMARK round %d frame=%d" % [round_no, Engine.get_frames_drawn()])
+			await get_tree().create_timer(2.5).timeout
+			SavedGame.clear()  # the next recording starts clean
+			get_tree().quit()

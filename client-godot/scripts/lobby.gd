@@ -22,6 +22,7 @@ var _ready_btn: Button
 var _count: Label
 var _bar: ColorRect
 var _deadline := 0.0
+var _clock := 0.0  ## seconds of play shown here (the countdowns run on it)
 var _ready_total := READY_SECONDS  ## the ready countdown's full length (the server's)
 var _search_lbl: Label  ## "finding players… 1:23" at a public table that is filling
 var _search_t0 := 0.0
@@ -129,12 +130,14 @@ func _seat(box: Control, p: Dictionary, c: Vector2, mine: bool, k := 1.0) -> Con
 	holder.scale = Vector2.ONE * k
 	holder.set_meta("k", k)
 	box.add_child(holder)
-	var av := Kit.avatar(String(p["portrait"]), 240.0 * _u)
-	av.position = Vector2(50, 50) * _u
+	# portrait, name, rating and status stacked with room between them
+	# (Persian letters reach well below the line)
+	var av := Kit.avatar(String(p["portrait"]), 220.0 * _u)
+	av.position = Vector2(60, 40) * _u
 	holder.add_child(av)
 	_text(holder, String(p["name"]).strip_edges().get_slice(" ", 0), TS.LABEL, Kit.GOLD if mine else Kit.IVORY,
-			"sans_bold", Rect2(0, 295, 340, 56))
-	_text(holder, L.t("rating_n", int(p.get("rating", 1000))), TS.CAPTION, Kit.MUTED, "sans", Rect2(0, 345, 340, 40))
+			"sans_bold", Rect2(0, 266, 340, 56))
+	_text(holder, L.t("rating_n", int(p.get("rating", 1000))), TS.CAPTION, Kit.MUTED, "sans", Rect2(0, 330, 340, 40))
 	return holder
 
 
@@ -175,7 +178,7 @@ func show_ready(players: Array, auto := false) -> void:
 	_bar.size = Vector2(520, 8) * _u
 	add_child(_bar)
 	_count = _text(self, "2:00", TS.NUM_S, Kit.IVORY, "num", Rect2(1480, 880, 200, 110))
-	_deadline = Time.get_ticks_msec() / 1000.0 + READY_SECONDS
+	_deadline = _clock + READY_SECONDS
 	for i in range(1, n):
 		_ready_later(i, randf_range(0.6, 2.6))
 	if auto:
@@ -195,7 +198,7 @@ func show_ready(players: Array, auto := false) -> void:
 
 
 func _left() -> float:
-	return maxf(_deadline - Time.get_ticks_msec() / 1000.0, 0.0)
+	return maxf(_deadline - _clock, 0.0)
 
 
 func _ready_later(i: int, after: float) -> void:
@@ -210,7 +213,7 @@ func _mark_ready(i: int) -> void:
 		return
 	var holder := _seats[i]
 	var g := Kit.gem("green", 90.0 * _u)
-	g.position = Vector2(225, 215) * _u
+	g.position = Vector2(212, 180) * _u  # on the portrait's lower edge, clear of the name
 	g.pivot_offset = g.size * 0.5
 	holder.add_child(g)
 	g.scale = Vector2.ONE * 2.0
@@ -238,7 +241,8 @@ func _tick_search() -> void:
 		_search_lbl.text = "%s  %d:%02d" % [L.t("searching_sub"), s / 60, s % 60]
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	_clock += delta
 	_tick_search()
 	if _running and _count and is_instance_valid(_count) and _bar and is_instance_valid(_bar):
 		var left := _left()
@@ -362,21 +366,24 @@ func show_net(net: NetGame) -> void:
 				h.scale = Vector2.ONE * _seat_k(n, left)
 				box.add_child(h)
 				var g := Kit.gem("white", 120.0 * _u)
-				g.position = Vector2(110, 110) * _u
+				g.position = Vector2(110, 90) * _u
 				g.modulate = Color(0.45, 0.45, 0.45, 0.7)
 				h.add_child(g)
-				_text(h, L.t("waiting"), TS.CAPTION, Kit.MUTED, "sans_bold", Rect2(0, 295, 340, 56))
+				_text(h, L.t("waiting"), TS.CAPTION, Kit.MUTED, "sans_bold", Rect2(0, 266, 340, 56))
 				_seats.append(h)
 				_stamps.append(null)
 				_status.append(null)
 				continue
 			var hs := _seat(box, sd, c, sd["me"], _seat_k(n, left))
-			var st := _text(hs, "" if waiting else L.t("waiting"), TS.CAPTION, Kit.MUTED, "sans_bold", Rect2(0, 380, 340, 36))
+			var st := _text(hs, "" if waiting else L.t("waiting"), TS.CAPTION, Kit.MUTED, "sans_bold", Rect2(0, 372, 340, 36))
 			_seats.append(hs)
 			_stamps.append(null)
 			_status.append(st)
 			if sd["ready"] and not waiting:
 				_mark_ready(i)
+		if phase == "readyCheck" and not has_meta("ready_mark"):
+			set_meta("ready_mark", true)
+			print("VIDEOMARK ready frame=%d" % Engine.get_frames_drawn())  # where a recording starts
 		if phase == "readyCheck" and not sent_ready[0]:
 			_ready_btn = Kit.button(L.t("ready"), Vector2(520, 136) * _u, "emerald", "", 52.0 * _u)
 			_ready_btn.position = _px(Vector2(940, 870))
@@ -390,9 +397,13 @@ func show_net(net: NetGame) -> void:
 				get_tree().create_timer(1.5).timeout.connect(func():
 					if is_instance_valid(_ready_btn) and not sent_ready[0]:
 						_ready_btn.pressed.emit())
+		if phase != "readyCheck" and has_meta("ready_clock"):
+			remove_meta("ready_clock")  # a ready check that starts again gets its own countdown
 		if phase == "readyCheck":
 			_count = _text(self, "", TS.NUM_S, Kit.IVORY, "num", Rect2(1480, 880, 200, 110))
-			_deadline = Time.get_ticks_msec() / 1000.0 + net.ready_left()
+			if not has_meta("ready_clock"):  # set once, then counted here (redraws do not reset it)
+				set_meta("ready_clock", true)
+				_deadline = _clock + net.ready_left()
 			_ready_total = net.ready_total()
 			_bar = ColorRect.new()
 			_bar.color = Kit.GOLD_DEEP

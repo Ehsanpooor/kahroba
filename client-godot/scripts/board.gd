@@ -209,6 +209,8 @@ func _ready() -> void:
 	if not args.has("--no-intro") and table_game:
 		await _lobby().choose_starter([me] + opps, first_seat)
 	start_turn(first_seat)
+	if args.has("--autoplay") and not demo:  # test: your moves play themselves (videos, checks)
+		_autoplay()
 	if mode == "tutorial":
 		var tut := Tutorial.new()
 		add_child(tut)
@@ -731,40 +733,20 @@ func _opening() -> void:
 			FX.ring(world_root, home, Color(1.0, 0.82, 0.45), U, 110.0, 0.4))
 		await _wait(0.11)
 	await _wait(0.3)
-	# the decks slide in from the left edge
+	# row by row a deck arrives as a flat stack, deals its four cards from
+	# there, then turns up on its edge and sinks into its hole
 	Sfx.play("game_start")
 	for r in 3:
-		var dn: DeckStack = deck_nodes[TIER_OF_ROW[r]]
-		var home := dn.position
-		dn.visible = true
-		dn.position = home + Vector3(-700.0 * U, 120.0 * U, 0)
-		dn.rotation.y = 0.6
-		var tw := dn.create_tween().set_parallel(true)
-		tw.tween_property(dn, "position", home, 0.5).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-		tw.tween_property(dn, "rotation:y", 0.0, 0.5).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-		await _wait(0.1)
-	await _wait(0.45)
-	# deal, row by row, each card turning over in the air
-	for r in 3:
-		var dn: DeckStack = deck_nodes[TIER_OF_ROW[r]]
-		for c in 4:
-			var card := cards[r * 4 + c]
-			if card.data.is_empty():
-				continue
-			card.visible = true
-			_deal(card, TIER_OF_ROW[r], 0.7)
-			await _wait(0.09)
-		await _wait(0.12)
-	await _wait(0.45)
+		_deck_row(r)
+		await _wait(1.05)  # the next deck comes in while this one deals
+	await _wait(1.7)
 	# the gem piles fill up
 	for col in Gems.ALL:
 		_fill_pile(bank[col], int(bank_counts[col]))
 		await _wait(0.08)
 	await _wait(0.4)
-	# the players' areas arrive
-	var tw2 := hud.create_tween()
-	tw2.tween_property(hud, "modulate:a", 1.0, 0.45)
-	await _wait(0.55)
+	# the players arrive: the others from the left, you and the clock from below
+	await hud.arrive()
 	intro_running = false
 
 
@@ -1226,6 +1208,8 @@ func resume_game() -> void:
 func _auto_pause() -> void:
 	if paused or intro_running or not can_pause() or hud == null:
 		return
+	if OS.get_cmdline_user_args().has("--autoplay"):
+		return  # a test or recording plays on in an unfocused window
 	if hud.modal and is_instance_valid(hud.modal):
 		return
 	pause_game()
@@ -1861,13 +1845,75 @@ func _refill(idx: int) -> void:
 	_refresh_glows()
 
 
-## A card comes out of its deck's hole: it rises from the top of the deck,
-## turns over and turns from the hole's upright shape to lie on its place.
+## One row of the opening: the deck flies in, deals its four cards from the
+## stack, then settles into its hole.
+func _deck_row(r: int) -> void:
+	var stack := await _deck_fly_in(r)
+	for c in 4:
+		var card := cards[r * 4 + c]
+		if card.data.is_empty():
+			continue
+		card.visible = true
+		Sfx.play("card_deal")
+		card.deal_from(stack.global_position + Vector3(0, 10.0 * U, 0), 0.65, 1.0, 0.0, 0.0)
+		await _wait(0.13)
+	await _wait(0.7)
+	await _deck_settle(r, stack)
+
+
+## A deck comes to its hole in clear steps: a stack of card backs slides in
+## from the left edge lying flat (face down, landscape) and stops above its
+## hole (the cards are dealt from it there); then it turns up on its long edge
+## (75 degrees, the swing the deck is drawn with) and sinks into the hole,
+## where the drawn deck takes its place.
+func _deck_fly_in(r: int) -> Node3D:
+	var dn: DeckStack = deck_nodes[TIER_OF_ROW[r]]
+	var home := dn.position
+	var w := SCard.W * CARD_K * U
+	var d := SCard.H * CARD_K * U
+	var p := "res://assets/splendor/hud/back_%d.png" % TIER_OF_ROW[r]
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.albedo_texture = Tex.get_tex(p) if ResourceLoader.exists(p) else null
+	var stack := Node3D.new()
+	world_root.add_child(stack)
+	for k in 3:  # three backs, a little apart: a stack, with edges once it stands
+		var q := MeshInstance3D.new()
+		q.mesh = Meshes.quad(w, d)
+		q.material_override = mat
+		q.position = Vector3(k * 2.5 * U, k * 3.0 * U, 0)
+		stack.add_child(q)
+	var lift := w * 0.5 * sin(deg_to_rad(75.0)) + 34.0 * U  # standing up stays above the board
+	stack.position = home + Vector3(-760.0 * U, lift, 0)
+	var tw := stack.create_tween()
+	tw.tween_property(stack, "position", home + Vector3(0, lift, 0), 0.5).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	await tw.finished
+	return stack
+
+
+func _deck_settle(r: int, stack: Node3D) -> void:
+	var dn: DeckStack = deck_nodes[TIER_OF_ROW[r]]
+	var home := dn.position
+	var tw := stack.create_tween()
+	tw.tween_property(stack, "rotation:z", deg_to_rad(75.0), 0.3).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	tw.tween_property(stack, "position", home, 0.28).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	await tw.finished
+	dn.visible = true
+	dn.position = home
+	dn.rotation = Vector3.ZERO
+	stack.queue_free()
+	FX.ring(world_root, home + Vector3(0, 6.0 * U, 0), Color(1.0, 0.82, 0.45), U, 90.0, 0.35)
+
+
+## A card comes out of its deck: it lifts off the top face down, already lying
+## flat and landscape as on its place (never turned or tipped: in the camera's
+## perspective that reads as a bent card), glides there and turns over.
 func _deal(card: SCard, tier: int, dur: float) -> void:
 	var dn: DeckStack = deck_nodes[tier]
-	var start_k := dn.size.y / SCard.W / CARD_K
 	Sfx.play("card_deal")
-	await card.deal_from(dn.top_world(), dur, start_k, PI * 0.5, (BOARD_T + 40.0) / CARD_K)
+	await card.deal_from(dn.top_world(), dur, 0.92, 0.0, (BOARD_T + 24.0) / CARD_K)
 
 
 func _update_deck(tier: int) -> void:
@@ -2021,6 +2067,19 @@ func _ai_turn(i: int) -> void:
 		var take: Array = plan[mini(_tut_ai_turn, plan.size() - 1)]
 		_tut_ai_turn += 1
 		await _ai_take(i, MAX_COINS - _total(o), [], take)
+		hud.update_opponent(i)
+		end_turn()
+		return
+	if _video():  # the store videos' story, at a person's pace
+		await _wait(_video_pace() - 1.5)
+		var mv := _video_logged(o, false)
+		match String(mv["kind"]):
+			"buy":
+				await _ai_buy(i, mv["card"])
+			"reserve":
+				await _ai_reserve(i, mv["card"])
+			_:
+				await _ai_take(i, MAX_COINS - _total(o), [], mv["colors"])
 		hud.update_opponent(i)
 		end_turn()
 		return
@@ -2503,6 +2562,9 @@ func _run_test(what: String) -> void:
 	_build()
 	await _wait(0.3)
 	match what:
+		"texts":  # test: the longest banner and stage lines, to check they fit
+			hud.set_stage(L.t("opp_taking", "فرشته"), false)
+			hud.announce("فرشته خرید", "کارت عقیق سیاه سطح 1", false, 30.0)
 		"empty":  # test: empty piles
 			for c in Gems.COLORS:
 				bank_counts[c] = 0
@@ -2599,6 +2661,9 @@ func _autoplay() -> void:
 		await _wait(0.8)
 		if not _my_turn():
 			continue
+		if _video():
+			await _video_my_move()
+			continue
 		var bought := false
 		for c in cards:
 			if c.visible and not c.data.is_empty() and can_afford(me, c.data):
@@ -2625,3 +2690,82 @@ func _autoplay() -> void:
 				await _wait(0.6)
 				_on_reserve_pressed()
 				break
+
+
+# ------------------------------------------------------------------ store videos
+
+## Test (store videos): `--video-script` plays a set story at a person's pace.
+## In rounds 1 and 2 everyone takes gems; in round 2 the player started with
+## `--video-reserve` reserves a card instead. From round 3 everyone buys a card
+## when they can, else takes gems. Each move takes 7 to 30 seconds.
+func _video() -> bool:
+	return OS.get_cmdline_user_args().has("--video-script")
+
+
+func _video_pace() -> float:
+	var t := 7.0 + 23.0 * pow(randf(), 1.6)  # mostly short, now and then a long think
+	return maxf(t / 10.0, 1.6) if OS.get_cmdline_user_args().has("--video-fast") else t  # --video-fast: checks
+
+
+## The story's move for player `p`: {"kind": "buy" | "reserve", "card"} or
+## {"kind": "take", "colors"}.
+func _video_move(p: Dictionary, reserver: bool) -> Dictionary:
+	var shown: Array = cards.filter(func(c: SCard): return c.visible and not c.data.is_empty())
+	if round_no == 2 and reserver and (p["reserved"] as Array).is_empty():
+		var best: SCard = null
+		for c in shown:
+			if best == null or int(c.data.get("points", 0)) > int(best.data.get("points", 0)):
+				best = c
+		if best:
+			return {"kind": "reserve", "card": best}
+	if round_no >= 3:
+		var buy: SCard = null
+		for c in shown:
+			if can_afford(p, c.data) and (buy == null or int(c.data.get("points", 0)) > int(buy.data.get("points", 0))):
+				buy = c
+		if buy:
+			return {"kind": "buy", "card": buy}
+	# gems toward the card that is nearest to buy, so buying can start in round 3
+	var room := MAX_COINS - _total(p)
+	var target: SCard = null
+	for c in shown:
+		if target == null or _gold_needed(p, c.data) < _gold_needed(p, target.data):
+			target = c
+	var need: Dictionary = _cost_after_bonus(p, target.data) if target else {}
+	var cols: Array = Gems.COLORS.filter(func(col): return int(bank_counts[col]) > 0)
+	cols.shuffle()
+	cols.sort_custom(func(a, b):
+		var da := int(need.get(a, 0)) - int(p["coins"][a])
+		var db := int(need.get(b, 0)) - int(p["coins"][b])
+		return da > db if da != db else int(bank_counts[a]) > int(bank_counts[b]))
+	return {"kind": "take", "colors": cols.slice(0, mini(3, room))}
+
+
+## The story's move, logged (the recordings are checked against it).
+func _video_logged(p: Dictionary, reserver: bool) -> Dictionary:
+	var mv := _video_move(p, reserver)
+	print("VIDEOMOVE round=%d %s %s" % [round_no, String(p["name"]), mv["kind"]])
+	return mv
+
+
+## Your move in the story, played through the table as a player would.
+func _video_my_move() -> void:
+	await _wait(_video_pace() - 1.4)
+	if not _my_turn():
+		return
+	var mv := _video_logged(me, OS.get_cmdline_user_args().has("--video-reserve"))
+	match String(mv["kind"]):
+		"buy":
+			open_inspect(mv["card"])
+			await _wait(1.0)
+			_on_buy_pressed()
+		"reserve":
+			open_inspect(mv["card"])
+			await _wait(1.2)
+			_on_reserve_pressed()
+		_:
+			for col in mv["colors"]:
+				take_coin(col)
+				await _wait(0.55)
+			await _wait(0.5)
+			_finish_picking()

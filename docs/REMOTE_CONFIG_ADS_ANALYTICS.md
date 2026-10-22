@@ -30,7 +30,7 @@ Payload `{}`. Answer (the defaults):
     }
   },
   "minVersion": "0.9.3",
-  "latestVersion": "0.9.5",
+  "latestVersion": "0.9.6",
   "updateUrl": "https://cafebazaar.ir/app/ir.aizood.splendor",
   "updateMessage": {"fa": "", "en": ""},
   "announcement": null,

@@ -17,6 +17,9 @@ func _ready() -> void:
 	var game := {}
 	if role == "search":  # a public table
 		var count := 4 if OS.get_cmdline_user_args().has("--four") else 2
+		for a in OS.get_cmdline_user_args():
+			if a.begins_with("--players="):
+				count = int(a.get_slice("=", 1))
 		var r := await Api.rpc_call("start_public_search", {"playerCount": count})
 		print("NETTEST table ", r["data"])
 		print("NETTEST join ", await Api.join_match(String(r["data"].get("matchId", ""))))

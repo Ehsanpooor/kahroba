@@ -67,6 +67,7 @@ var _glow: ColorRect
 var _bg: TextureRect
 var _groups := {}
 var _reserve_box: Control
+var _reserve_shown := false  ## drawn once already: later cards rise in
 var _portrait_c := Vector2.ZERO
 var _face: Control  ## the portrait and its ring, which pulse on this player's turn
 var _pulse: Tween
@@ -359,7 +360,9 @@ func refresh(pop := false) -> void:
 
 ## Your reserved cards as the design shows them: just a card of each one's
 ## gem colour, side by side under "Reserves:", running off the bottom edge.
+## A card that has just joined rises into its place from below.
 func _draw_reserve(res: Array) -> void:
+	var had := _reserve_box.get_child_count()
 	for c in _reserve_box.get_children():
 		c.queue_free()
 	var w := _len(RES_CARD_W)
@@ -367,7 +370,15 @@ func _draw_reserve(res: Array) -> void:
 	for k in res.size():
 		var t := _hud("card_" + String(res[k]["element"]))
 		if t:
-			_image(t, Rect2(Vector2(k * _len(RES_STEP), 0), Vector2(w, h)), _reserve_box)
+			var img := _image(t, Rect2(Vector2(k * _len(RES_STEP), 0), Vector2(w, h)), _reserve_box)
+			if k >= had and had >= 0 and _reserve_shown:
+				var home := img.position
+				img.position = home + Vector2(0, h * 0.9)
+				img.modulate.a = 0.0
+				var tw := img.create_tween().set_parallel(true)
+				tw.tween_property(img, "position", home, 0.45).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+				tw.tween_property(img, "modulate:a", 1.0, 0.2)
+	_reserve_shown = true
 
 
 func _set_label(l: Label, n: int, pop: bool) -> void:

@@ -195,8 +195,13 @@ func _process(delta: float) -> void:
 		var pulse := 0.65 + 0.35 * sin(Time.get_ticks_msec() * 0.004)
 		face_mat.set_shader_parameter("glow", _glow * pulse)
 	if not busy:
-		pivot.position = Vector3(0, hover * 14.0, 0)
-		pivot.rotation = Vector3(tilt_target.y * 0.12 * hover, 0, -tilt_target.x * 0.12 * hover)
+		# tilts toward the pointer, lifted by what the tilt lowers its corners,
+		# so no corner ever dips into the board
+		var rx := tilt_target.y * 0.12 * hover
+		var rz := -tilt_target.x * 0.12 * hover
+		var drop := H * 0.5 * absf(sin(rx)) + W * 0.5 * absf(sin(rz)) + THICK
+		pivot.position = Vector3(0, hover * 14.0 + drop, 0)
+		pivot.rotation = Vector3(rx, 0, rz)
 
 
 func set_face_up(up: bool) -> void:
@@ -282,13 +287,16 @@ func deal_from(from_world: Vector3, dur := 0.55, start_scale := 0.85, start_yaw 
 	var tw := create_tween()
 	if k_rise > 0.0:
 		tw.tween_property(pivot, "position", up, dur * k_rise).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	# it glides flat to its place (no tilt, no turning in the air: in the
+	# camera's perspective those read as a bent card), then turns face up there
 	tw.tween_method(func(t: float):
-		var e := 1.0 - pow(1.0 - t, 3.0)
+		var m := minf(t / 0.78, 1.0)
+		var e := 1.0 - pow(1.0 - m, 3.0)
 		var p := up.lerp(Vector3.ZERO, e)
-		p.y += sin(t * PI) * 70.0
+		p.y += sin(m * PI) * 24.0
 		pivot.position = p
-		pivot.rotation = Vector3(sin(t * PI) * -0.25, lerpf(start_yaw, 0.0, smoothstep(0.0, 0.7, t)), 0)
-		flipper.rotation.z = PI * (1.0 - smoothstep(0.2, 0.85, t))
+		pivot.rotation = Vector3(0, lerpf(start_yaw, 0.0, smoothstep(0.05, 0.72, t)), 0)  # turns flat on the table
+		flipper.rotation.z = PI * (1.0 - smoothstep(0.76, 1.0, t))
 		pivot.scale = Vector3.ONE * lerpf(start_scale, 1.0, e), 0.0, 1.0, dur * (1.0 - k_rise))
 	await tw.finished
 	set_face_up(true)

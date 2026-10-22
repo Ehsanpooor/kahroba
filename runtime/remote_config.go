@@ -95,7 +95,7 @@ func defaultClientConfig() ClientConfig {
 			AdBreakMaxSec:  30,
 		},
 		MinVersion:    "0.9.3",
-		LatestVersion: "0.9.5",
+		LatestVersion: "0.9.6",
 		UpdateURL:     "https://cafebazaar.ir/app/ir.aizood.splendor",
 		RatePrompt:    RatePrompt{Enabled: true, AfterWins: 2},
 		Analytics:     AnalyticsConfig{Enabled: true, FlushSec: 30},

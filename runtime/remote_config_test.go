@@ -25,7 +25,7 @@ func TestClientConfig_DefaultsMatchTheContract(t *testing.T) {
 	const want = `{
 	  "ads": {"enabled": false, "minIntervalSec": 180, "adBreakMaxSec": 30,
 	    "slots": {"pregame_online": {"enabled": false}, "pregame_ai": {"enabled": false}, "postgame": {"enabled": false}}},
-	  "minVersion": "0.9.3", "latestVersion": "0.9.5",
+	  "minVersion": "0.9.3", "latestVersion": "0.9.6",
 	  "updateUrl": "https://cafebazaar.ir/app/ir.aizood.splendor",
 	  "updateMessage": {"fa": "", "en": ""},
 	  "announcement": null,
