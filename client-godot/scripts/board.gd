@@ -116,6 +116,9 @@ var match_id := ""  # the server match of an online game
 var _net_down := false  # an online game lost the server: paused until it is back
 var _down_at := 0.0
 var _rebuild_pending := false
+var paused := false  ## a game against the computer is paused (pause_game)
+var _paused_at := 0.0
+var _started_at := 0.0  ## when play began (ticks, s): game_end's "sec"
 
 
 func _ready() -> void:
@@ -134,6 +137,9 @@ func _ready() -> void:
 			return
 		net.apply_full()
 		Prefs.game.erase("resume")
+		if Prefs.game.get("joined_room", false):  # a friend's room, joined with its code
+			Prefs.game.erase("joined_room")
+			Analytics.event("room_join", {"players": int(net.state.get("expectedPlayerCount", net.n))})
 	var saved := SavedGame.read() if Prefs.game.get("resume", false) else {}
 	Prefs.game.erase("resume")  # Play again starts a new game
 	if not saved.is_empty() and not demo:
@@ -179,6 +185,7 @@ func _ready() -> void:
 			return
 		if not args.has("--no-intro"):
 			await _opening()
+		_track_start()
 		net.start()
 		if args.has("--autoplay"):
 			_autoplay()
@@ -187,6 +194,8 @@ func _ready() -> void:
 		await get_tree().create_timer(0.3).timeout
 	else:
 		await _opening()
+	_track_start()
+	_pause_if_asked(args)
 	if resumed:
 		hud.toast(L.t("rejoined") if SavedGame.is_online({"mode": mode}) else L.t("continued"))
 		start_turn(turn, true)
@@ -839,6 +848,8 @@ func _notification(what: int) -> void:
 		pointer_inside = false
 	elif what == NOTIFICATION_WM_GO_BACK_REQUEST:
 		_back()
+	elif what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_APPLICATION_FOCUS_OUT:
+		_auto_pause()
 
 
 func _back() -> void:
@@ -848,6 +859,8 @@ func _back() -> void:
 			_overlay_screen = null
 	elif _net_down:
 		pass  # the connection dialog stays until the line is back or you leave
+	elif paused:
+		resume_game()
 	elif hud.is_modal():
 		hud.close_modal()
 	elif inspecting:
@@ -1007,7 +1020,8 @@ func _finish_game() -> void:
 				"cards": _card_count(q), "me": q == me})
 	_record_game(won)
 	await _wait(1.8)
-	hud.show_results(out, L.t("victory") if won else L.t("wins", String(w["name"])), won, _play_again, _to_menu)
+	hud.show_results(out, L.t("victory") if won else L.t("wins", String(w["name"])), won, after_results(_play_again),
+			after_results(_to_menu))
 
 
 func _card_count(q: Dictionary) -> int:
@@ -1017,9 +1031,16 @@ func _card_count(q: Dictionary) -> int:
 	return n
 
 
-func _record_game(won: bool, rating_delta := 0) -> void:
+## The game is over for you: kept in the history, counted for the rate
+## prompt, and sent as `game_end`. `quit`: you left before the end. `place`
+## (1 = first) comes from the server online; otherwise it is worked out here.
+func _record_game(won: bool, rating_delta := 0, quit := false, place := 0) -> void:
 	if demo:
 		return
+	_track_end(won, quit, place)
+	if won and mode in ["ai", "online", "friends"]:
+		Prefs.set_v("wins", int(Prefs.get_v("wins")) + 1)
+		Prefs.just_won = true
 	var seats := []
 	for q in [me] + opps:
 		seats.append({"name": q["name"], "portrait": q["portrait"], "power": int(q["prestige"])})
@@ -1028,6 +1049,38 @@ func _record_game(won: bool, rating_delta := 0) -> void:
 		"difficulty": difficulty, "power": int(me["prestige"]), "rating_delta": rating_delta,
 		"played_at": int(Time.get_unix_time_from_system()), "seats": seats, "moves": moves,
 	})
+
+
+## Leaving the results (Play again or Menu) may show an ad first ("postgame").
+func after_results(then: Callable) -> Callable:
+	return func():
+		await Ads.show("postgame")
+		then.call()
+
+
+## Analytics: a game begins (a continued one too, marked `resumed`).
+func _track_start() -> void:
+	_started_at = Time.get_ticks_msec() / 1000.0
+	if demo:
+		return
+	var p := {"mode": mode, "players": opps.size() + 1, "difficulty": difficulty if net == null else "", "win": win_points}
+	if resumed:
+		p["resumed"] = true
+	Analytics.event("game_start", p)
+
+
+## Analytics: the game is over (or left).
+func _track_end(won: bool, quit: bool, place: int) -> void:
+	if place <= 0:
+		var rows := [me] + opps
+		rows.sort_custom(func(x, y):
+			if int(x["prestige"]) != int(y["prestige"]):
+				return int(x["prestige"]) > int(y["prestige"])
+			return _card_count(x) < _card_count(y))
+		place = 1 if won else maxi(rows.find(me) + 1, 2)
+	var sec := int(Time.get_ticks_msec() / 1000.0 - _started_at) if _started_at > 0.0 else 0
+	Analytics.event("game_end", {"mode": mode, "players": opps.size() + 1, "difficulty": difficulty if net == null else "",
+			"won": won, "place": place, "points": int(me["prestige"]), "rounds": maxi(round_no, 1), "sec": sec, "quit": quit})
 
 
 func _play_again() -> void:
@@ -1099,6 +1152,8 @@ func open_menu() -> void:
 		[L.t("how_to"), "dark", func(): _open_screen("howto")],
 		[L.t("settings"), "dark", func(): _open_screen("settings")],
 	]
+	if can_pause():
+		items.insert(1, [L.t("pause"), "dark", pause_game])
 	if mode in ["online", "friends"]:
 		items.append([L.t("report"), "dark", _report])
 	items.append([L.t("leave"), "red", _ask_leave])
@@ -1126,6 +1181,55 @@ func _open_screen(screen_name: String) -> void:
 		get_tree().reload_current_scene())
 
 
+# ------------------------------------------------------------------ pause (games against the computer)
+
+## Only a game against the computer can wait: online the server runs the clock.
+func can_pause() -> bool:
+	return mode == "ai" and net == null and not demo and not game_over
+
+
+## Everything on the table stands still (the clock, the computer players,
+## every move in flight) under a dialog that Resume closes.
+func pause_game() -> void:
+	if paused or not can_pause():
+		return
+	paused = true
+	_paused_at = Time.get_ticks_msec() / 1000.0
+	if inspecting:
+		close_inspect()
+	get_tree().paused = true
+	hud.pause_overlay(resume_game)
+
+
+func resume_game() -> void:
+	if not paused:
+		return
+	paused = false
+	get_tree().paused = false
+	var sec := Time.get_ticks_msec() / 1000.0 - _paused_at
+	hud.turn_started += sec  # the clock goes on from where it stopped
+	if hud.modal and is_instance_valid(hud.modal):
+		hud.close_modal()
+	Analytics.event("pause", {"sec": int(sec)})
+
+
+## The app went to the background (or lost focus) during a game against the
+## computer: pause it, unless a dialog is already waiting for an answer.
+func _auto_pause() -> void:
+	if paused or intro_running or not can_pause() or hud == null:
+		return
+	if hud.modal and is_instance_valid(hud.modal):
+		return
+	pause_game()
+
+
+## --pause: open the pause a moment after the table is up (checks).
+func _pause_if_asked(args: PackedStringArray) -> void:
+	if args.has("--pause"):
+		await get_tree().create_timer(1.0).timeout
+		pause_game()
+
+
 func _report() -> void:
 	var items := []
 	for o in opps:
@@ -1149,13 +1253,13 @@ func _leave() -> void:
 	if net:  # leaving an online game concedes it
 		net.concede()
 		game_over = true
-		_record_game(false)
+		_record_game(false, 0, true)
 		Api.leave_match()
 		_to_menu()
 		return
 	if not game_over:
 		game_over = true
-		_record_game(false)
+		_record_game(false, 0, true)
 	_to_menu()
 
 
@@ -2352,8 +2456,9 @@ func _shake(n: Node3D) -> void:
 	tw.tween_property(n, "position", base, 0.04)
 
 
+## Wait `s` seconds of play: the wait stands still while the game is paused.
 func _wait(s: float) -> void:
-	await get_tree().create_timer(s).timeout
+	await get_tree().create_timer(s, false).timeout
 
 
 # ------------------------------------------------------------------ demo

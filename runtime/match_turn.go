@@ -260,6 +260,7 @@ func finalizeMatch(ms *MatchState, tc turnCtx, reason EndReason) *MatchState {
 	}
 
 	tc.logger.Info("match ended reason=%s winner=%q rated=%v", reason, winnerUID, ms.Rated)
+	onlineMatchEnded(ms, tc, reason)
 
 	broadcastState(ms, tc.dispatcher, tc.now)
 	broadcastGameEnded(tc.dispatcher, msgGameEnded{

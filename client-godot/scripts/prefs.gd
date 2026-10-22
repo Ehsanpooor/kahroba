@@ -24,6 +24,11 @@ const DEFAULTS := {
 	"device_id": "",  # this device's sign-in on the server, made on first use
 	"email": "",  # the account's recovery email, once checked
 	"email_nag_at": 1000,  # the rating of the last "add an email" reminder (one every 50 points)
+	"opened_before": false,  # the app was opened on this device before (analytics app_open "first")
+	"wins": 0,  # games won against the computer or online (the rate prompt)
+	"rate_asked": false,  # the "rate us on Cafe Bazaar" prompt was shown
+	"seen_announcement": "",  # the id of the last announcement shown
+	"seen_update": "",  # the version the last "a new version is out" notice was about
 }
 
 var data := {}
@@ -32,6 +37,9 @@ var data := {}
 var game := {"mode": "ai", "players": 4, "difficulty": "normal"}
 ## The screen the app opens on ("splash" on a cold start, "menu" after a game).
 var start_screen := "splash"
+## A game was just won (against the computer or online): the menu may ask
+## for a rating.
+var just_won := false
 
 var _bright: ColorRect
 

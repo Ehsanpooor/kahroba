@@ -91,6 +91,10 @@ type PlayerState struct {
 	// seat has no user and the game cannot start while one exists.
 	SeatOpen         bool  `json:"seatOpen,omitempty"`
 	RefillDeadlineMs int64 `json:"refillDeadlineMs,omitempty"`
+
+	// AdDone is set when this seat's app has sent AD_DONE in the online ad
+	// break (match_ready.go). Only human seats are waited for.
+	AdDone bool `json:"adDone,omitempty"`
 }
 
 // ReserveIDs returns the card IDs the player currently holds in reserve.
@@ -196,6 +200,15 @@ type MatchState struct {
 	// botArrivals are the moments the remaining seats get a persona.
 	Public      bool `json:"public,omitempty"`
 	botArrivals []int64
+
+	// FirstSeatedMs is when the first player sat down at a public table, so
+	// analytics can tell how long the table took to fill.
+	FirstSeatedMs int64 `json:"-"`
+
+	// AdBreakUntilMs is the deadline of the online ad break (match_ready.go),
+	// 0 when there has been none. It stays set once the break began, so a
+	// table that loses a player meanwhile is not sent a second break.
+	AdBreakUntilMs int64 `json:"adBreakUntilMs,omitempty"`
 }
 
 // newSeed draws a per-match seed from the OS entropy source, falling back to

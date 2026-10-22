@@ -216,7 +216,11 @@ func _enter(match_key: String, mm_token: String, game: Dictionary) -> void:
 ## or a new one); the board's waiting room then shows players arriving.
 func _search(players: int) -> void:
 	var cancelled := [false]
-	_busy_dialog(L.t("mode_online"), L.t("searching"), func(): cancelled[0] = true)
+	var t0 := Time.get_unix_time_from_system()
+	Analytics.event("search_start", {"players": players, "sec": 0})
+	_busy_dialog(L.t("mode_online"), L.t("searching"), func():
+		cancelled[0] = true
+		Analytics.event("search_cancel", {"players": players, "sec": int(Time.get_unix_time_from_system() - t0)}))
 	await Api.sync_profile()
 	var r := await Api.rpc_call("start_public_search", {"playerCount": players})
 	if cancelled[0]:
@@ -233,8 +237,7 @@ func _search(players: int) -> void:
 		close_dialog()
 		_fail("")
 		return
-	await _enter(table, "", {"mode": "online", "players": players, "win_points": 18,
-			"search_started": Time.get_unix_time_from_system()})
+	await _enter(table, "", {"mode": "online", "players": players, "win_points": 18, "search_started": t0})
 
 
 ## You are already at a table (a room you opened, a table you were waiting
@@ -296,6 +299,7 @@ func _create_room(players: int, win: int) -> void:
 		else:
 			_fail("")
 		return
+	Analytics.event("room_create", {"players": players})
 	await _enter(String(r["data"].get("matchId", "")), "", {"mode": "friends", "players": players, "win_points": win,
 			"code": String(r["data"].get("code", ""))})
 
@@ -325,7 +329,8 @@ func _join_dialog() -> void:
 				return
 			_fail(L.t("room_not_found") if int(r["code"]) in [3, 5] else "")
 			return
-		await _enter(String(r["data"].get("matchId", "")), "", {"mode": "friends", "players": 0, "code": code})
+		await _enter(String(r["data"].get("matchId", "")), "", {"mode": "friends", "players": 0, "code": code,
+				"joined_room": true})  # the board sends room_join once it knows the room's size
 	var pad := pin_pad(box, Rect2(lx + (left_w - 700) * 0.5, 105, 700, 130), kx, w - left_w - 40.0,
 			func(code: String, msg: String):
 				note.text = msg

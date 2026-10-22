@@ -194,6 +194,9 @@ func handleJoin(ms *MatchState, tc turnCtx, presences []runtime.Presence) *Match
 			p := newPlayerState(userID, pres.GetUsername())
 			p.Disconnected = false
 			ms.Players = append(ms.Players, p)
+			if ms.Public && ms.FirstSeatedMs == 0 {
+				ms.FirstSeatedMs = tc.now
+			}
 			if ms.Public {
 				if ms.humanSeatCount() == 1 && ms.botArrivals == nil {
 					planArrivals(ms, tc.now)
@@ -235,6 +238,7 @@ func handleJoin(ms *MatchState, tc turnCtx, presences []runtime.Presence) *Match
 		switch {
 		case ms.ReadyCheck:
 			// Every seat is filled: the ready check begins.
+			tableFilled(ms, tc)
 			enterReadyCheck(ms, tc.now)
 			tc.logger.Info("ready check started players=%d", len(ms.Players))
 			readyCheckChanged = true
@@ -255,6 +259,15 @@ func handleJoin(ms *MatchState, tc turnCtx, presences []runtime.Presence) *Match
 	} else {
 		for _, pres := range joined {
 			sendStateTo(ms, tc.dispatcher, pres, tc.now)
+		}
+	}
+	// A player who comes back during the ad break and has not answered it
+	// hears about it again, or the table would wait for them until the end.
+	if ms.Phase == PhaseReadyCheck && ms.AdBreakUntilMs > tc.now {
+		for _, pres := range joined {
+			if seat := ms.SeatOf(pres.GetUserId()); seat >= 0 && !ms.Players[seat].AdDone {
+				sendAdBreak(ms, tc.dispatcher, pres, tc.now)
+			}
 		}
 	}
 	return ms

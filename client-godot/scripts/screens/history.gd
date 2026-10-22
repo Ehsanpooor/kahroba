@@ -1,7 +1,8 @@
 extends Screen
 ## Your finished games, newest first, on painted rows: a win or loss badge,
 ## the kind of game and when, the other players, your prestige and rating
-## change. The newest three keep every move: REPLAY opens them.
+## change. The newest three keep every move: REPLAY opens them. Before the
+## first game: a short word that the games will gather here, and Play.
 
 const LIST := Rect2(260, 330, 1880, 720)
 const ROW := Vector2(1880, 170)
@@ -14,10 +15,9 @@ func build() -> void:
 	backdrop("screen_bg", 0.3)
 	title_bar(L.t("history"))
 	_games = Prefs.history()
-	var sample := _games.is_empty()
-	if sample:
-		_games = _sample_games()
-		text(L.t("sample_games"), TS.CAPTION, Color(0.9, 0.66, 0.45), "serif", Rect2(0, 1040, D.x, 36))
+	if _games.is_empty():
+		_empty()
+		return
 	var tabs := Kit.tabs([L.t("all"), L.t("mode_online"), L.t("computer")], _filter, Vector2(300, 96) * u, 24.0 * u,
 			func(i: int):
 				_filter = i
@@ -100,18 +100,11 @@ func _ago(t: int) -> String:
 	return "%d/%02d/%02d" % [dt["year"], dt["month"], dt["day"]]
 
 
-func _sample_games() -> Array:
-	var now := int(Time.get_unix_time_from_system())
-	var me := {"name": Prefs.display_name(), "portrait": Prefs.get_v("portrait")}
-	var mk := func(res: String, mode: String, power: int, delta: int, ago: int, opp: Array) -> Dictionary:
-		var seats := [me.merged({"power": power})]
-		for o in opp:
-			seats.append({"name": o[0], "portrait": o[1], "power": o[2]})
-		return {"result": res, "mode": mode, "players": seats.size(), "difficulty": "normal", "power": power,
-				"rating_delta": delta, "played_at": now - ago, "seats": seats}
-	return [
-		mk.call("win", "online", 17, 14, 1500, [["Sahar", "M-17", 13], ["Kaveh", "H-07", 11]]),
-		mk.call("loss", "ai", 12, 0, 7200, [["Lorenzo", "M-12", 16]]),
-		mk.call("win", "online", 15, 11, 90000, [["Leila", "E-03", 9], ["Arash", "D-02", 14], ["Mina", "M-09", 6]]),
-		mk.call("loss", "online", 8, -9, 200000, [["Nima", "D-09", 15]]),
-	]
+## No game played yet: three gems resting, the word, and the way to a game.
+func _empty() -> void:
+	put_at(Kit.gem_row(520.0 * u, 70.0 * u), Vector2((D.x - 520) * 0.5, 330))
+	text(L.t("no_games"), TS.TITLE, Kit.GOLD, "title_bold", Rect2(0, 440, D.x, 90))
+	text(L.t("no_games_sub"), TS.BODY, Kit.IVORY, "serif", Rect2(0, 540, D.x, 60))
+	var b := Kit.button(L.t("play"), Vector2(560, 140) * u, "emerald", "", 56.0 * u)
+	put_at(b, Vector2((D.x - 560) * 0.5, 680))
+	b.pressed.connect(func(): go.emit("play", null))

@@ -57,6 +57,11 @@ func processMessage(ms *MatchState, msg runtime.MatchData, tc turnCtx) *MatchSta
 		return handleReady(ms, senderID, tc)
 	}
 
+	// AD_DONE likewise: a late one, after the break ended, changes nothing.
+	if op == OpAdDone {
+		return handleAdDone(ms, senderID, tc)
+	}
+
 	if ms.Phase != PhasePlaying && ms.Phase != PhaseFinalRound {
 		rejectCode(ms, tc.dispatcher, senderID, ErrGameNotRunning, "the match is not in progress")
 		return ms

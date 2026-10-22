@@ -108,6 +108,7 @@ func fillPublicTable(ms *MatchState, tc turnCtx) *MatchState {
 	}
 	updateLabel(ms, tc.dispatcher, tc.now)
 	if len(ms.Players) == ms.ExpectedPlayerCount {
+		tableFilled(ms, tc)
 		enterReadyCheck(ms, tc.now)
 		return settleReadyCheck(ms, tc, true)
 	}
@@ -128,6 +129,7 @@ func leaveWaiting(ms *MatchState, userID string, closing bool, tc turnCtx) *Matc
 		tc.logger.Info("room closed by its host")
 		return finalizeMatch(ms, tc, EndReasonLobbyTimeout)
 	}
+	tableLeftBeforeFill(ms, tc)
 	ms.Players = append(ms.Players[:seat], ms.Players[seat+1:]...)
 	ms.dropPresence(userID)
 	if tc.nk != nil {

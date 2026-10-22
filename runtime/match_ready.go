@@ -24,6 +24,13 @@ import (
 //     private match, goes to a Normal bot.
 //   - If no human is left the match is cancelled (lobbyTimeout: unrated, no
 //     history).
+//   - When the remote config turns on ads and the pregame_online slot, a table
+//     that is all ready does not start at once: AD_BREAK (op 110) goes out
+//     with a deadline (adBreakMaxSec), each app shows its ad and answers
+//     AD_DONE (op 9), and the game starts when every human seat has answered
+//     or at the deadline. Bots and personas never hold it up. A player who
+//     leaves meanwhile is removed exactly as during the check; a table that
+//     then has to wait for a replacement starts without a second break.
 //
 // Nakama's matchmaker cannot be pulled from server-side: the runtime has no
 // MatchmakerAdd and only hears about full groups. The open seat is therefore
@@ -115,7 +122,8 @@ func checkReadyCheck(ms *MatchState, tc turnCtx) *MatchState {
 			changed = true
 		}
 	}
-	return settleReadyCheck(ms, tc, changed)
+	ms = settleReadyCheck(ms, tc, changed)
+	return checkAdBreak(ms, tc)
 }
 
 // leaveReadyCheck treats a player who leaves or concedes during the ready check
@@ -146,9 +154,72 @@ func settleReadyCheck(ms *MatchState, tc turnCtx, changed bool) *MatchState {
 	updateLabel(ms, tc.dispatcher, tc.now)
 	broadcastReadyState(ms, tc.dispatcher, tc.now)
 	if ms.allSeatsReady() {
-		return startGame(ms, tc)
+		return afterAllReady(ms, tc)
 	}
 	broadcastState(ms, tc.dispatcher, tc.now)
+	return ms
+}
+
+// afterAllReady starts the game, or the ad break first when the config asks
+// for one. With the slot off this is exactly startGame.
+func afterAllReady(ms *MatchState, tc turnCtx) *MatchState {
+	if ms.AdBreakUntilMs == 0 {
+		on, maxSec := onlineAdBreakConfig()
+		if !on {
+			return startGame(ms, tc)
+		}
+		ms.AdBreakUntilMs = tc.now + int64(maxSec)*1000
+		for i := range ms.Players {
+			ms.Players[i].AdDone = false
+		}
+		tc.logger.Info("ad break until %d", ms.AdBreakUntilMs)
+		sendAdBreak(ms, tc.dispatcher, nil, tc.now)
+	}
+	if ms.adBreakOver(tc.now) {
+		return startGame(ms, tc)
+	}
+	return ms
+}
+
+// adBreakOver reports whether the ad break may end: its deadline has passed,
+// or every human seat has sent AD_DONE.
+func (ms *MatchState) adBreakOver(nowMs int64) bool {
+	if nowMs >= ms.AdBreakUntilMs {
+		return true
+	}
+	for i := range ms.Players {
+		p := &ms.Players[i]
+		if !p.IsAI && !p.SeatOpen && !p.AdDone {
+			return false
+		}
+	}
+	return true
+}
+
+// handleAdDone records an AD_DONE. Like READY it is silent when it does not
+// apply: outside the break, a repeat, or from a socket that holds no seat.
+func handleAdDone(ms *MatchState, userID string, tc turnCtx) *MatchState {
+	if ms.Phase != PhaseReadyCheck || ms.AdBreakUntilMs == 0 {
+		return ms
+	}
+	seat := ms.SeatOf(userID)
+	if seat < 0 || ms.Players[seat].IsAI || ms.Players[seat].AdDone {
+		return ms
+	}
+	ms.Players[seat].AdDone = true
+	tc.logger.Info("ad break: seat %d done userId=%s", seat, userID)
+	return checkAdBreak(ms, tc)
+}
+
+// checkAdBreak starts a table whose ad break is over. Nothing happens while a
+// seat is still open or not ready: the ready check owns the table until then.
+func checkAdBreak(ms *MatchState, tc turnCtx) *MatchState {
+	if ms.Phase != PhaseReadyCheck || ms.AdBreakUntilMs == 0 || !ms.allSeatsReady() {
+		return ms
+	}
+	if ms.adBreakOver(tc.now) {
+		return startGame(ms, tc)
+	}
 	return ms
 }
 
@@ -178,6 +249,7 @@ func startGame(ms *MatchState, tc turnCtx) *MatchState {
 
 	updateLabel(ms, tc.dispatcher, tc.now)
 	broadcastGameStarted(ms, tc.dispatcher, tc.now)
+	onlineMatchStarted(ms, tc)
 	beginTurn(ms, tc)
 	return ms
 }
@@ -280,6 +352,8 @@ func seatRefill(ms *MatchState, pres runtime.Presence, nowMs int64) (int, bool) 
 		p := newPlayerState(userID, pres.GetUsername())
 		p.Disconnected = false
 		p.ReadyDeadlineMs = nowMs + int64(ReadyTimeoutSeconds)*1000
+		// arriving after the ad break began: nobody waits for their ad
+		p.AdDone = ms.AdBreakUntilMs > 0
 		ms.Players[i] = p
 		return i, true
 	}

@@ -7,7 +7,7 @@ extends Node
 ## {ok, data, code, message}; `code` is Nakama's status code (0 when the server
 ## was not reached at all).
 
-signal match_message(op: int, data: Dictionary)  ## a match op code (100..109) from the server
+signal match_message(op: int, data: Dictionary)  ## a match op code (100..110) from the server
 signal matched(info: Dictionary)  ## the matchmaker found a table: {match_id, token}
 signal notification(code: int, content: Dictionary)
 signal socket_closed
@@ -24,6 +24,7 @@ const OP_JAIL := 4
 const OP_CONCEDE := 6
 const OP_SYNC := 7
 const OP_READY := 8
+const OP_AD_DONE := 9  ## this device's ad break is over (payload {})
 const OP_STATE := 100
 const OP_TURN := 102
 const OP_REJECTED := 103
@@ -33,6 +34,7 @@ const OP_ENDED := 106
 const OP_READY_STATE := 107
 const OP_REMOVED := 108
 const OP_STARTED := 109
+const OP_AD_BREAK := 110  ## everyone is ready: show an ad, then send OP_AD_DONE ({deadlineMs})
 
 ## Server elements as the game's gem colours, and back.
 const TO_GEM := {"light": "white", "water": "blue", "nature": "green", "fire": "red", "shadow": "black", "aether": "gold"}

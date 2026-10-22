@@ -125,6 +125,7 @@ func open(screen_name: String, arg: Variant = null, remember := true) -> void:
 	s.play.connect(start_game)
 	current = s
 	layer.add_child(s)
+	Analytics.event("screen", {"name": screen_name})
 	s.modulate.a = 0.0
 	var tw := s.create_tween()
 	tw.tween_property(s, "modulate:a", 1.0, 0.22)
@@ -144,8 +145,12 @@ func go_back() -> void:
 	open(prev[0], prev[1], false)
 
 
+## Open the board for `game`. A game against the computer (new or
+## continued) may show an ad first ("pregame_ai").
 func start_game(game: Dictionary) -> void:
 	Prefs.game = game
+	if String(game.get("mode", "")) == "ai" and not game.get("net", false):
+		await Ads.show("pregame_ai")
 	var cover := ColorRect.new()
 	cover.color = Color(0, 0, 0, 0)
 	cover.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -169,5 +174,5 @@ func _handle_back() -> void:
 	if current and current.on_back():
 		return
 	if current and current.get_meta("name") == "menu":
-		return  # the menu is home; the system closes the app
+		return  # the menu is home: it asks before closing the app (menu.on_back)
 	go_back()

@@ -10,13 +10,14 @@ config/name="Splendor"
 config/name_localized={
 "fa": "اسپلندور"
 }
-config/version="0.9.3"
+config/version="0.9.4"
 run/main_scene="res://scenes/app.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 boot_splash/bg_color=Color(0.0431373, 0.0431373, 0.0392157, 1)
 boot_splash/show_image=false
 config/icon="res://assets/icon/icon.png"
 config/windows_native_icon="res://assets/icon/splendor.ico"
+run/flush_stdout_on_print=true
 
 [autoload]
 
@@ -25,6 +26,13 @@ Perf="*res://scripts/perf.gd"
 Sfx="*res://scripts/sfx.gd"
 Net="*res://scripts/net.gd"
 Api="*res://scripts/server_api.gd"
+Remote="*res://scripts/remote_config.gd"
+Analytics="*res://scripts/analytics.gd"
+Ads="*res://scripts/ads.gd"
+
+[debug]
+
+file_logging/enable_file_logging=true
 
 [display]
 

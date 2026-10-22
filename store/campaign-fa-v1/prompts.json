@@ -1,0 +1,39 @@
+{
+  "mode": "built-in image_gen",
+  "language": "Persian",
+  "direction": "Bold, simple, gameplay-focused ads",
+  "assets": [
+    {
+      "name": "01-gameplay-frame",
+      "referenced_image_paths": [
+        "C:\\projects\\splendor version\\deploy\\web\\img\\shot_board.webp"
+      ],
+      "transparent_background": false,
+      "prompt": "Use case: ads-marketing. Campaign for the Persian mobile board game اسپلندور. Visual direction: bold, simple, gameplay-first, exceptionally legible at thumbnail size. Deep near-black teal background, clean ivory Persian typography, electric emerald accent, restrained gold hairlines. Modern graphic advertising, generous spacing, no ornamental scrollwork or busy fantasy scenery. Correct connected Persian script, right-to-left text. All advertising copy must be exactly as supplied; do not invent extra text, claims, ratings, prices, awards, store badges or logos. No watermarks.\nAsset: finished landscape screenshot promotional frame, target 1920x1080, 16:9.\nInput 1 is the actual game screenshot, an essential supporting insert, not a style to redraw. Place the COMPLETE screenshot flat, straight-on, uncropped and undistorted as a very large readable rectangle occupying the lower roughly 72% of the canvas, maintaining its original 1600:720 aspect ratio, with a thin emerald frame and very subtle shadow. Preserve the screenshot's existing card artwork, tokens, Persian UI and numbers faithfully. No painted-over screenshot, no replacement gameplay.\nHeader: brand small top right \"اسپلندور\"; hero headline large white across the upper area, exact text \"هر حرکت، یک قدم تا پیروزی\". One short supporting line below in muted ivory \"بازی فکری آنلاین\". Clear hierarchy, headline readable instantly. Keep all header text outside screenshot. Emerald geometric corner accent, tiny round emerald page marker bottom right. The result must make the real game the hero."
+    },
+    {
+      "name": "02-strategy-frame",
+      "referenced_image_paths": [
+        "C:\\projects\\splendor version\\store\\screenshots\\03_card.png"
+      ],
+      "transparent_background": false,
+      "prompt": "Use case: ads-marketing. Campaign for the Persian mobile board game اسپلندور. Visual direction: bold, simple, gameplay-first, exceptionally legible at thumbnail size. Deep near-black teal background, clean ivory Persian typography, electric emerald accent, restrained gold hairlines. Modern graphic advertising, generous spacing, no ornamental scrollwork or busy fantasy scenery. Correct connected Persian script, right-to-left text. All advertising copy must be exactly as supplied; do not invent extra text, claims, ratings, prices, awards, store badges or logos. No watermarks.\nAsset: finished landscape screenshot promotional frame, target 1920x1080, 16:9, same dark teal/ivory/emerald campaign.\nInput 1 is an actual screenshot to place faithfully as a supporting insert. Preserve its complete content, all edges and 16:9 proportions, card art and existing Persian UI. Place it flat and uncropped in a large thin emerald rectangular border in the lower canvas, approx 78% canvas width, 78% canvas height, leave a generous dedicated header. Do not invent any UI or redraw/change the screen.\nSmall brand in top right \"اسپلندور\". Dominant bold Persian headline across top, exact \"جواهر جمع کن، کارت بخر، پیشتاز شو\". It may wrap neatly into two balanced lines if needed. Small support line exact \"هر انتخاب، یک فرصت تازه\". White headline, green highlight on a short phrase only, calm flat dark background, no ornamental decoration, no phone mockup. Advertising text remains entirely outside the screenshot."
+    },
+    {
+      "name": "03-friends-square-ad",
+      "referenced_image_paths": [
+        "C:\\projects\\splendor version\\deploy\\web\\img\\shot_board.webp"
+      ],
+      "transparent_background": false,
+      "prompt": "Use case: ads-marketing. Campaign for the Persian mobile board game اسپلندور. Visual direction: bold, simple, gameplay-first, exceptionally legible at thumbnail size. Deep near-black teal background, clean ivory Persian typography, electric emerald accent, restrained gold hairlines. Modern graphic advertising, generous spacing, no ornamental scrollwork or busy fantasy scenery. Correct connected Persian script, right-to-left text. All advertising copy must be exactly as supplied; do not invent extra text, claims, ratings, prices, awards, store badges or logos. No watermarks.\nAsset: finished square social/install advertisement, 1536x1536.\nInput 1 actual board screenshot, use faithfully as a flat supporting insert on the screen of one landscape smartphone in lower half; do not invent a different game. Device nearly straight-on, large readable screen, thin black bezel, subtle realistic shadow, no perspective that obscures game.\nAt top right small brand \"اسپلندور\". Upper half huge bold Persian headline exact \"دوستانت را به چالش بکش\" set in 2 lines, right-aligned, with \"چالش\" in vivid emerald. Smaller line exact \"یک میز، کلی رقابت\". Under phone a simple rounded emerald call-to-action with dark Persian text exact \"همین حالا بازی کن\". Near bottom, small text \"بازی فکری آنلاین\". One sapphire and one ruby game token near two opposite phone corners, understated and matching physical token style in actual screenshot. Strong open dark background, luminous flat green graphic circle cropped behind phone. No people, no casino imagery, no piles of coins. Keep ad and real game clearly readable."
+    },
+    {
+      "name": "04-competition-wide-ad",
+      "referenced_image_paths": [
+        "C:\\projects\\splendor version\\deploy\\web\\img\\shot_board.webp"
+      ],
+      "transparent_background": false,
+      "prompt": "Use case: ads-marketing. Campaign for the Persian mobile board game اسپلندور. Visual direction: bold, simple, gameplay-first, exceptionally legible at thumbnail size. Deep near-black teal background, clean ivory Persian typography, electric emerald accent, restrained gold hairlines. Modern graphic advertising, generous spacing, no ornamental scrollwork or busy fantasy scenery. Correct connected Persian script, right-to-left text. All advertising copy must be exactly as supplied; do not invent extra text, claims, ratings, prices, awards, store badges or logos. No watermarks.\nAsset: landscape promotional banner, target 1920x1080, 16:9.\nInput 1 is game art/style reference only; this banner is a graphic conceptual advertisement, no invented gameplay interface. Right half contains small brand \"اسپلندور\", huge bold right-aligned Persian headline exact \"رقابت از همین‌جا شروع می‌شود\" in two or three spacious lines; smaller subtitle exact \"فکر کن، انتخاب کن، پیشتاز شو\"; emerald call-to-action pill exact \"همین حالا بازی کن\".\nLeft half is a striking close-up still life of five substantial colored gem game tokens with clean gold rims, sapphire/ruby/emerald/ivory/onyx, arranged as strategic playing pieces on a minimal dark game surface with a few blank ivory card edges visible behind them. Tokens have large clean gem emblems, no numbers, no currency, no casino chips. Match the recognizably tactile board-game jewel materials of the reference but simplify greatly. Main emerald token raised upright, sapphire/ruby laid flat, ivory/onyx subtly behind. Graphic emerald diagonal block under still life, warm directional highlights, crisp modern ad art. Restrained gold, no filigree, no renaissance room, no generic fantasy characters. Keep headline and tokens in separate generous spaces."
+    }
+  ]
+}

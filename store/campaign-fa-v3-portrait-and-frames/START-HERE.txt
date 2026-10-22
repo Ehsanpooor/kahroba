@@ -1,0 +1,28 @@
+PERSIAN SPLENDOR — PORTRAIT ADS AND TRANSPARENT FRAMES
+
+Built with the built-in image_gen tool. Prompts are included.
+Fancy game theme: gilded filigree, emerald leather and velvet, sapphire banners, jewels, candlelit Renaissance merchant cabinet.
+
+TRANSPARENT PNG OVERLAYS
+01-gameplay-transparent-frame.png — landscape 1672 x 941
+02-strategy-transparent-frame.png — landscape 1672 x 941
+04-challenge-ad-portrait-empty-screen.png — portrait 941 x 1672, empty phone display
+
+HOW TO ADD YOUR SCREENSHOT
+1. Open the PNG overlay in an editor that supports layers.
+2. Add your own game screenshot as a separate layer UNDER the overlay.
+3. Scale and position the screenshot to cover the entire transparent opening.
+4. Export the combined image as PNG or JPEG.
+Do not flatten the overlay before adding your screenshot. Black seen in some previews is the display background behind the transparent hole.
+The openings have been checked for actual alpha-zero pixels, not painted checkerboards.
+files-and-placement.json includes canvas sizes and opening bounds for easier positioning.
+
+PORTRAIT DESIGNS — 941 x 1672
+03 — Competition begins here: jewel tokens and cards.
+04 — Challenge your friends: phone screen is transparent for your own screenshot.
+05 — Friendly matches for up to 6 players.
+06 — Play offline against the computer, four difficulty levels.
+07 — Meet the nobles, using the game's noble portrait references.
+08 — Build your collection of jewel development cards.
+
+All advertising copy is Persian. Original artwork in earlier campaign folders remains available.

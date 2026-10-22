@@ -1,0 +1,36 @@
+PERSIAN SPLENDOR ADVERTISING — FIRST CONCEPT SET
+Direction: bold, simple, gameplay-focused. Dark teal, ivory, emerald.
+Created with the built-in image_gen tool. Full prompts are in prompts.json.
+
+01-gameplay-frame.png — 1672 x 941
+Headline: هر حرکت، یک قدم تا پیروزی
+Support: بازی فکری آنلاین
+Use: first store-gallery image; introduce the board and core game.
+
+02-strategy-frame.png — 1672 x 941
+Headline: جواهر جمع کن، کارت بخر، پیشتاز شو
+Support: هر انتخاب، یک فرصت تازه
+Use: second gallery image; cards and strategic decisions.
+
+03-friends-square-ad.png — 1254 x 1254
+Headline: دوستانت را به چالش بکش
+Support: یک میز، کلی رقابت
+CTA: همین حالا بازی کن
+Use: square advertisement for playing with friends.
+
+04-competition-wide-ad.png — 1672 x 941
+Headline: رقابت از همین‌جا شروع می‌شود
+Support: فکر کن، انتخاب کن، پیشتاز شو
+CTA: همین حالا بازی کن
+Use: landscape promotional advertisement.
+
+The screenshot designs are flattened promotional compositions, not transparent overlays.
+The source game screenshots were used as references; the original screenshot files remain in store/screenshots and deploy/web/img.
+These are concept exports at the dimensions above. No claim is made about current Bazaar upload specifications.
+
+IDEAS FOR THE NEXT GALLERY IMAGES
+Friends: میز خودت را بساز، دوستانت را دعوت کن
+Offline: بدون اینترنت هم بازی ادامه دارد
+Learning: از اولین حرکت، قدم‌به‌قدم یاد بگیر
+Ranking: برای صدر جدول رقابت کن
+Each gallery image should explain one benefit and show the corresponding real game screen.

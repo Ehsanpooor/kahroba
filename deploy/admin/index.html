@@ -1,0 +1,755 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#0b0a08">
+<title>مدیریت اسپلندور</title>
+<link rel="icon" href="icon.png">
+<style>
+/* The private admin page of Splendor (docs/REMOTE_CONFIG_ADS_ANALYTICS.md §4).
+   Served at /admin/ behind nginx basic auth; its data comes from
+   /admin/api/<rpc>, which nginx forwards to the server with the http key.
+   Every number is shown with English digits (the game's rule). */
+@font-face {
+  font-family: "Digits";
+  src: url("fonts/digits.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+  unicode-range: U+0030-0039, U+002E, U+0025, U+002B, U+003A, U+002C;
+}
+@font-face {
+  font-family: "Vazirmatn";
+  src: url("fonts/vazirmatn.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+:root {
+  color-scheme: dark;
+  --ink: #0b0a08;
+  --ink-2: #13110d;
+  --ink-3: #1b1812;
+  --gold: #e6c47c;
+  --gold-deep: #9a6a2b;
+  --ivory: #f3e8d0;
+  --muted: #c4b495;
+  --faint: #8f8268;
+  --line: rgba(230, 196, 124, .22);
+  --line-soft: rgba(230, 196, 124, .10);
+  --good: #4fbf73;
+  --bad: #e06a5a;
+  /* chart series (validated for this dark surface): active, new */
+  --s1: #bf8a26;
+  --s2: #3d86d4;
+  --radius: 16px;
+  --gutter: 16px;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+html, body { margin: 0; background: var(--ink); color: var(--ivory); }
+body {
+  font-family: "Digits", "Vazirmatn", Tahoma, sans-serif;
+  font-size: 15px; line-height: 1.7;
+  min-height: 100vh;
+  background: radial-gradient(1200px 500px at 50% -200px, rgba(230,196,124,.08), transparent 70%), var(--ink);
+}
+button, input, textarea, select { font: inherit; color: inherit; }
+a { color: var(--gold); }
+.ltr { direction: ltr; unicode-bidi: isolate; }
+.num { font-variant-numeric: tabular-nums; direction: ltr; unicode-bidi: isolate; }
+
+/* ---------- frame */
+header {
+  position: sticky; top: 0; z-index: 10;
+  background: rgba(11,10,8,.92); backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+}
+.bar { max-width: 1180px; margin: 0 auto; padding: 10px var(--gutter); display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 800; color: var(--gold); font-size: 17px; margin-inline-end: auto; }
+.brand img { width: 30px; height: 30px; border-radius: 8px; }
+.tabs { display: flex; gap: 4px; background: var(--ink-2); border: 1px solid var(--line); border-radius: 999px; padding: 3px; }
+.tab {
+  border: 0; background: transparent; padding: 6px 18px; border-radius: 999px; cursor: pointer; color: var(--muted); font-weight: 700;
+}
+.tab[aria-selected="true"] { background: var(--gold); color: var(--ink); }
+main { max-width: 1180px; margin: 0 auto; padding: 18px var(--gutter) 60px; }
+section[hidden] { display: none; }
+
+.toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.toolbar .grow { flex: 1; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.seg button { border: 0; background: var(--ink-2); padding: 5px 12px; cursor: pointer; color: var(--muted); }
+.seg button + button { border-inline-start: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--ink-3); color: var(--gold); font-weight: 700; }
+.btn {
+  border: 1px solid var(--line); background: var(--ink-2); color: var(--ivory);
+  padding: 7px 16px; border-radius: 10px; cursor: pointer; font-weight: 700;
+}
+.btn:hover { border-color: var(--gold); }
+.btn.primary { background: var(--gold); color: var(--ink); border-color: var(--gold); }
+.btn.primary:disabled { opacity: .55; cursor: wait; }
+.btn.small { padding: 4px 10px; font-size: 13px; }
+.stamp { color: var(--faint); font-size: 13px; }
+
+/* ---------- cards */
+.grid { display: grid; gap: 12px; }
+.kpis { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin-bottom: 12px; }
+.two { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+.card {
+  background: linear-gradient(180deg, var(--ink-3), var(--ink-2));
+  border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; min-width: 0;
+}
+.card h2 { margin: 0 0 10px; font-size: 15px; color: var(--gold); font-weight: 800; }
+.card h2 small { color: var(--faint); font-weight: 400; font-size: 12px; margin-inline-start: 6px; }
+.kpi .label { color: var(--muted); font-size: 13px; }
+.kpi .value { font-size: 28px; font-weight: 800; line-height: 1.25; color: var(--ivory); }
+.kpi .sub { color: var(--faint); font-size: 12px; }
+.mb { margin-bottom: 12px; }
+
+/* ---------- chart */
+.chart { position: relative; width: 100%; }
+.chart svg { display: block; width: 100%; direction: ltr; overflow: visible; touch-action: pan-y; }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+.legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-inline-end: 6px; }
+.tip {
+  position: absolute; pointer-events: none; z-index: 5; min-width: 120px;
+  background: rgba(19,17,13,.97); border: 1px solid var(--line); border-radius: 10px;
+  padding: 6px 10px; font-size: 13px; line-height: 1.6; box-shadow: 0 6px 20px rgba(0,0,0,.5);
+  opacity: 0; transition: opacity .12s;
+}
+.tip.on { opacity: 1; }
+.tip b { color: var(--gold); display: block; }
+.tip .row { display: flex; justify-content: space-between; gap: 14px; }
+.tip i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-inline-end: 6px; }
+
+/* ---------- retention */
+.ret { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.ret > div { background: var(--ink); border: 1px solid var(--line-soft); border-radius: 12px; padding: 10px; text-align: center; }
+.ret .value { font-size: 26px; font-weight: 800; }
+.ret .label { color: var(--gold); font-weight: 700; }
+.ret .sub { color: var(--faint); font-size: 12px; }
+
+/* ---------- lists and tables */
+.bars { display: grid; gap: 7px; }
+.bars .r { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; align-items: center; font-size: 14px; }
+.bars .k { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bars .v { color: var(--muted); font-size: 13px; }
+.bars .track { grid-column: 1 / -1; height: 6px; background: var(--line-soft); border-radius: 4px; overflow: hidden; }
+.bars .fill { height: 100%; background: var(--s1); border-radius: 4px; }
+.scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: start; padding: 7px 8px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+th { color: var(--muted); font-weight: 700; font-size: 12px; white-space: nowrap; }
+td.n, th.n { text-align: left; white-space: nowrap; }
+td .msg { direction: ltr; unicode-bidi: isolate; text-align: left; display: block; word-break: break-word; font-size: 13px; }
+td .msg { min-width: 180px; }
+td .num { white-space: nowrap; }
+td .where { color: var(--faint); font-size: 12px; direction: ltr; text-align: left; display: block; word-break: break-all; }
+pre.log {
+  direction: ltr; text-align: left; white-space: pre-wrap; word-break: break-word; margin: 6px 0 0;
+  background: var(--ink); border: 1px solid var(--line-soft); border-radius: 8px; padding: 8px; font-size: 12px; max-height: 260px; overflow: auto;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.empty { color: var(--faint); font-size: 13px; padding: 6px 0; }
+.stats-pair { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; margin-bottom: 10px; }
+.stats-pair > div { background: var(--ink); border: 1px solid var(--line-soft); border-radius: 10px; padding: 7px 10px; }
+.stats-pair .label { color: var(--muted); font-size: 12px; }
+.stats-pair .value { font-size: 19px; font-weight: 800; }
+
+/* ---------- settings form */
+form { display: grid; gap: 12px; }
+fieldset { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 16px 16px; margin: 0; background: var(--ink-2); min-width: 0; }
+legend { color: var(--gold); font-weight: 800; padding: 0 6px; }
+.hint { color: var(--faint); font-size: 12px; margin: 2px 0 8px; }
+.fields { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+label.f { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+input[type=text], input[type=number], input[type=url], textarea {
+  width: 100%; background: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; color: var(--ivory);
+}
+input:focus, textarea:focus { outline: 2px solid rgba(230,196,124,.5); outline-offset: 1px; border-color: var(--gold); }
+textarea { min-height: 70px; resize: vertical; line-height: 1.6; }
+input.ltr, textarea.ltr { direction: ltr; text-align: left; }
+.switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line-soft); }
+.switch:last-child { border-bottom: 0; }
+.switch .t { display: grid; }
+.switch .t small { color: var(--faint); font-size: 12px; }
+.toggle { position: relative; width: 48px; height: 28px; flex: none; }
+.toggle input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 1; }
+.toggle span { position: absolute; inset: 0; border-radius: 999px; background: #2c271d; border: 1px solid var(--line); transition: background .15s; }
+.toggle span::after {
+  content: ""; position: absolute; top: 3px; right: 3px; width: 20px; height: 20px; border-radius: 50%; background: var(--muted); transition: transform .15s, background .15s;
+}
+.toggle input:checked + span { background: var(--gold-deep); }
+.toggle input:checked + span::after { transform: translateX(-20px); background: var(--gold); }
+.toggle input:focus-visible + span { outline: 2px solid var(--gold); outline-offset: 2px; }
+.savebar {
+  position: sticky; bottom: 0; z-index: 5; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: rgba(11,10,8,.94); border-top: 1px solid var(--line); padding: 10px 0 calc(10px + env(safe-area-inset-bottom));
+}
+.status { font-size: 14px; }
+.status.ok { color: var(--good); }
+.status.err { color: var(--bad); }
+.banner { border: 1px solid rgba(224,106,90,.5); background: rgba(224,106,90,.08); color: #f2b8ae; border-radius: 12px; padding: 10px 14px; margin-bottom: 12px; }
+
+@media (max-width: 560px) {
+  body { font-size: 14px; }
+  .kpi .value { font-size: 23px; }
+  .two { grid-template-columns: 1fr; }
+  .brand span { display: none; }
+  .ret .value { font-size: 21px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <div class="brand"><img src="icon.png" alt=""><span>مدیریت اسپلندور</span></div>
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" id="tab-stats" aria-controls="stats" aria-selected="true">آمار</button>
+      <button class="tab" role="tab" id="tab-settings" aria-controls="settings" aria-selected="false">تنظیمات</button>
+    </div>
+  </div>
+</header>
+
+<main>
+<!-- ================================================================ stats -->
+<section id="stats" role="tabpanel" aria-labelledby="tab-stats">
+  <div class="toolbar">
+    <div class="seg" id="range" role="group" aria-label="بازه">
+      <button data-days="7" aria-pressed="false">7 روز</button>
+      <button data-days="30" aria-pressed="true">30 روز</button>
+      <button data-days="90" aria-pressed="false">90 روز</button>
+    </div>
+    <button class="btn small" id="reload">به‌روزرسانی</button>
+    <span class="grow"></span>
+    <span class="stamp" id="stamp"></span>
+  </div>
+  <div id="statsError" class="banner" hidden></div>
+
+  <div class="grid kpis" id="kpis"></div>
+
+  <div class="card mb">
+    <h2>بازیکنان هر روز <small id="dailyRange"></small></h2>
+    <div class="legend">
+      <span><i style="background:var(--s1)"></i>بازیکنان فعال</span>
+      <span><i style="background:var(--s2)"></i>بازیکنان تازه</span>
+    </div>
+    <div class="chart" id="dailyChart"></div>
+    <details><summary>جدول روزها</summary><div class="scroll" id="dailyTable"></div></details>
+  </div>
+
+  <div class="grid two mb">
+    <div class="card">
+      <h2>ماندگاری <small>از 30 گروه روزانهٔ اخیر</small></h2>
+      <div class="ret" id="retention"></div>
+      <p class="hint">درصد بازیکنانی که N روز بعد از اولین روزشان دوباره بازی را باز کرده‌اند. روزی که هنوز تمام نشده حساب نمی‌شود.</p>
+      <details><summary>گروه‌ها</summary><div class="scroll" id="cohorts"></div></details>
+    </div>
+    <div class="card">
+      <h2>بازی‌ها بر اساس حالت</h2>
+      <div class="scroll" id="modes"></div>
+    </div>
+  </div>
+
+  <div class="grid two mb">
+    <div class="card">
+      <h2>جست‌وجوی بازی آنلاین</h2>
+      <div class="stats-pair" id="search"></div>
+      <h2>میزهای آنلاین <small>از سرور</small></h2>
+      <div class="stats-pair" id="online"></div>
+    </div>
+    <div class="card">
+      <h2>جای تبلیغ‌ها</h2>
+      <div class="scroll" id="ads"></div>
+    </div>
+  </div>
+
+  <div class="grid two mb">
+    <div class="card"><h2>نسخهٔ بازی <small>بازیکن</small></h2><div class="bars" id="versions"></div></div>
+    <div class="card"><h2>گوشی‌ها <small>بازیکن</small></h2><div class="bars" id="devices"></div></div>
+    <div class="card"><h2>سیستم‌عامل <small>بازیکن</small></h2><div class="bars" id="platforms"></div></div>
+    <div class="card"><h2>صفحه‌ها <small>بازدید</small></h2><div class="bars" id="screens"></div></div>
+  </div>
+
+  <div class="card mb">
+    <h2>خطاهای برنامه <small>جدیدترین اول</small></h2>
+    <div class="scroll" id="errors"></div>
+  </div>
+  <div class="card">
+    <h2>بسته شدن‌های ناگهانی (کرش) <small>جدیدترین اول</small></h2>
+    <div class="scroll" id="crashes"></div>
+  </div>
+</section>
+
+<!-- ============================================================= settings -->
+<section id="settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
+  <div id="cfgError" class="banner" hidden></div>
+  <form id="cfg" novalidate>
+    <fieldset>
+      <legend>تبلیغات</legend>
+      <p class="hint">هنوز هیچ شبکهٔ تبلیغاتی در برنامه نیست؛ این کلیدها جاهای تبلیغ را برای نسخه‌های بعدی آماده نگه می‌دارند.</p>
+      <div class="switch"><span class="t">همهٔ تبلیغ‌ها<small>کلید اصلی؛ خاموش یعنی هیچ تبلیغی</small></span><span class="toggle"><input type="checkbox" id="ads_enabled"><span></span></span></div>
+      <div class="switch"><span class="t">پیش از بازی آنلاین و با دوستان<small>pregame_online — پس از آماده شدن همه، پیش از شروع</small></span><span class="toggle"><input type="checkbox" id="slot_pregame_online"><span></span></span></div>
+      <div class="switch"><span class="t">پیش از بازی با کامپیوتر<small>pregame_ai</small></span><span class="toggle"><input type="checkbox" id="slot_pregame_ai"><span></span></span></div>
+      <div class="switch"><span class="t">پس از نتیجهٔ بازی<small>postgame — هنگام بیرون رفتن از صفحهٔ نتیجه</small></span><span class="toggle"><input type="checkbox" id="slot_postgame"><span></span></span></div>
+      <div class="fields" style="margin-top:10px">
+        <label class="f">کمترین فاصلهٔ دو تبلیغ (ثانیه، 0 تا 86400)<input type="text" inputmode="numeric" autocomplete="off" id="minIntervalSec" min="0" max="86400" class="ltr"></label>
+        <label class="f">بیشترین مکث آنلاین برای تبلیغ (ثانیه، 5 تا 60)<input type="text" inputmode="numeric" autocomplete="off" id="adBreakMaxSec" min="5" max="60" class="ltr"></label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>به‌روزرسانی برنامه</legend>
+      <div class="fields">
+        <label class="f">کمترین نسخهٔ مجاز (کمتر از این: به‌روزرسانی اجباری)<input type="text" id="minVersion" class="ltr" placeholder="0.9.3" autocomplete="off" spellcheck="false"></label>
+        <label class="f">تازه‌ترین نسخه (کمتر از این: پیشنهاد به‌روزرسانی)<input type="text" id="latestVersion" class="ltr" placeholder="0.9.4" autocomplete="off" spellcheck="false"></label>
+      </div>
+      <div class="fields" style="margin-top:12px">
+        <label class="f">نشانی دریافت نسخهٔ تازه<input type="url" id="updateUrl" class="ltr" placeholder="https://cafebazaar.ir/app/ir.aizood.splendor" spellcheck="false"></label>
+      </div>
+      <div class="fields" style="margin-top:12px">
+        <label class="f">پیام به‌روزرسانی (فارسی، اختیاری)<textarea id="updateMessage_fa" maxlength="500"></textarea></label>
+        <label class="f">پیام به‌روزرسانی (انگلیسی، اختیاری)<textarea id="updateMessage_en" class="ltr" maxlength="500"></textarea></label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>اطلاعیه</legend>
+      <p class="hint">برنامه هر اطلاعیه را یک بار در منو نشان می‌دهد؛ برای اطلاعیهٔ تازه شناسهٔ تازه بگذارید.</p>
+      <div class="fields">
+        <label class="f">شناسه (تا 64 نویسه)<input type="text" id="ann_id" class="ltr" maxlength="64" placeholder="2026-11-01-a" autocomplete="off" spellcheck="false"></label>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 4px">
+        <button type="button" class="btn small" id="annNewId">شناسهٔ تازه</button>
+        <button type="button" class="btn small" id="annClear">پاک کردن اطلاعیه</button>
+      </div>
+      <div class="fields" style="margin-top:8px">
+        <label class="f">متن فارسی<textarea id="ann_fa" maxlength="500"></textarea></label>
+        <label class="f">متن انگلیسی<textarea id="ann_en" class="ltr" maxlength="500"></textarea></label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>درخواست امتیاز</legend>
+      <div class="switch"><span class="t">درخواست امتیاز در کافه بازار</span><span class="toggle"><input type="checkbox" id="rate_enabled"><span></span></span></div>
+      <div class="fields" style="margin-top:10px">
+        <label class="f">پس از چند برد<input type="text" inputmode="numeric" autocomplete="off" id="afterWins" min="0" max="1000" class="ltr"></label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>آمار</legend>
+      <div class="switch"><span class="t">فرستادن آمار استفاده<small>خاموش: برنامه دیگر رویدادی نمی‌فرستد</small></span><span class="toggle"><input type="checkbox" id="analytics_enabled"><span></span></span></div>
+      <div class="fields" style="margin-top:10px">
+        <label class="f">هر چند ثانیه بفرستد (5 تا 3600)<input type="text" inputmode="numeric" autocomplete="off" id="flushSec" min="5" max="3600" class="ltr"></label>
+      </div>
+    </fieldset>
+
+    <div class="savebar">
+      <button type="submit" class="btn primary" id="save">ذخیره</button>
+      <button type="button" class="btn" id="cfgReload">بازخوانی از سرور</button>
+      <span class="status" id="cfgStatus" role="status" aria-live="polite"></span>
+    </div>
+  </form>
+</section>
+</main>
+
+<script>
+"use strict";
+// ---------------------------------------------------------------- helpers
+const $ = (id) => document.getElementById(id);
+const fmt = (n) => (n == null || isNaN(n)) ? "—" : Number(n).toLocaleString("en-US", { maximumFractionDigits: 1 });
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+// Persian and Arabic digits typed on a phone keyboard become English ones
+const latin = (s) => String(s).replace(/[۰-۹]/g, (d) => d.charCodeAt(0) - 0x06F0).replace(/[٠-٩]/g, (d) => d.charCodeAt(0) - 0x0660);
+
+let persianDate = null;
+try {
+  persianDate = new Intl.DateTimeFormat("fa-IR-u-ca-persian-nu-latn", { day: "numeric", month: "long", timeZone: "UTC" });
+} catch (e) { /* ISO dates then */ }
+function dayLabel(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!persianDate) return iso.slice(5);
+  return latin(persianDate.format(new Date(Date.UTC(y, m - 1, d, 12))));
+}
+function duration(sec) {
+  if (sec == null || isNaN(sec)) return "—";
+  sec = Math.round(sec);
+  if (sec < 60) return sec + " ثانیه";
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return m + ":" + String(s).padStart(2, "0") + " دقیقه";
+}
+const pct = (a, b) => b > 0 ? fmt(Math.round(1000 * a / b) / 10) + "%" : "—";
+
+// One call to the server: POST /admin/api/<rpc> with a JSON body. nginx adds
+// the key; Nakama answers the RPC's own JSON, or {"message": ...} on error.
+async function rpc(name, body) {
+  const res = await fetch("api/" + name, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body || {}),
+    credentials: "same-origin",
+    cache: "no-store",
+  });
+  const text = await res.text();
+  let data = null;
+  try { data = JSON.parse(text); } catch (e) { /* not JSON */ }
+  if (!res.ok) {
+    const msg = (data && (data.message || data.error)) || ("HTTP " + res.status);
+    throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+  }
+  if (data == null) throw new Error("پاسخ نامعتبر از سرور");
+  return data;
+}
+
+// ---------------------------------------------------------------- tabs
+const tabs = { stats: $("tab-stats"), settings: $("tab-settings") };
+function showTab(name) {
+  for (const k of Object.keys(tabs)) {
+    tabs[k].setAttribute("aria-selected", String(k === name));
+    $(k).hidden = k !== name;
+  }
+  try { localStorage.setItem("admin.tab", name); } catch (e) { /* private mode */ }
+  if (name === "settings" && !cfgLoaded) loadConfig();
+  if (name === "stats" && lastStats) drawDaily(lastStats.daily); // the width may have changed
+}
+tabs.stats.onclick = () => showTab("stats");
+tabs.settings.onclick = () => showTab("settings");
+
+// ---------------------------------------------------------------- stats
+let days = 30, lastStats = null;
+try { days = Number(localStorage.getItem("admin.days")) || 30; } catch (e) { /* default */ }
+function markRange() {
+  for (const b of $("range").querySelectorAll("button")) b.setAttribute("aria-pressed", String(Number(b.dataset.days) === days));
+}
+$("range").addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  days = Number(b.dataset.days);
+  try { localStorage.setItem("admin.days", String(days)); } catch (err) { /* fine */ }
+  markRange();
+  loadStats();
+});
+$("reload").onclick = () => loadStats();
+
+async function loadStats() {
+  $("stamp").textContent = "در حال خواندن…";
+  $("statsError").hidden = true;
+  try {
+    const s = await rpc("admin_stats", { days });
+    lastStats = s;
+    renderStats(s);
+    $("stamp").textContent = "به‌روز: " + s.generatedAt + " (تهران)";
+  } catch (e) {
+    $("stamp").textContent = "";
+    $("statsError").textContent = "آمار خوانده نشد: " + e.message;
+    $("statsError").hidden = false;
+  }
+}
+
+function kpi(label, value, sub) {
+  return `<div class="card kpi"><div class="label">${esc(label)}</div><div class="value num">${value}</div>${sub ? `<div class="sub">${sub}</div>` : ""}</div>`;
+}
+
+function renderStats(s) {
+  const t = s.totals;
+  $("kpis").innerHTML = [
+    kpi("همهٔ بازیکنان", fmt(t.players), "از آغاز آمار"),
+    kpi("فعال امروز", fmt(t.activeToday), "7 روز: " + fmt(t.active7)),
+    kpi(`فعال در ${s.days} روز`, fmt(t.activePlayers), "تازه: " + fmt(t.newPlayers)),
+    kpi("بازی‌های تمام‌شده", fmt(t.games), "آنلاین: " + fmt(t.onlineMatches)),
+    kpi("باز شدن برنامه", fmt(t.appOpens), "میانگین ماندن: " + duration(t.avgSessionSec)),
+    kpi("خطا / کرش", `${fmt(t.errors)} / ${fmt(t.crashes)}`, fmt(t.events) + " رویداد در بازه"),
+  ].join("");
+
+  $("dailyRange").textContent = dayLabel(s.from) + " تا " + dayLabel(s.today);
+  drawDaily(s.daily);
+  $("dailyTable").innerHTML = table(["روز", "فعال", "تازه", "بازی", "آنلاین"],
+    s.daily.slice().reverse().map((d) => [dayLabel(d.day), n(d.active), n(d.new), n(d.games), n(d.online)]));
+
+  const r = s.retention;
+  const retTile = (label, x) => `<div><div class="label">${label}</div><div class="value num">${x.pct == null ? "—" : fmt(x.pct) + "%"}</div><div class="sub">${fmt(x.returned)} از ${fmt(x.players)}</div></div>`;
+  $("retention").innerHTML = retTile("D1", r.d1) + retTile("D7", r.d7) + retTile("D30", r.d30);
+  const cell = (v, size) => v == null ? "—" : `${fmt(v)} <span style="color:var(--faint)">(${pct(v, size)})</span>`;
+  $("cohorts").innerHTML = r.cohorts.length ? table(["روز اول", "بازیکن", "D1", "D7", "D30"],
+    r.cohorts.slice().reverse().map((c) => [dayLabel(c.day), n(c.size), raw(cell(c.d1, c.size)), raw(cell(c.d7, c.size)), raw(cell(c.d30, c.size))]))
+    : `<div class="empty">هنوز گروهی به اندازهٔ کافی قدیمی نیست.</div>`;
+
+  const modeName = { ai: "با کامپیوتر", online: "آنلاین", friends: "با دوستان", tutorial: "آموزش", "": "نامشخص" };
+  $("modes").innerHTML = s.modes.length ? table(["حالت", "شروع", "پایان", "نیمه‌کاره", "برد"],
+    s.modes.map((m) => [modeName[m.mode] || m.mode, n(m.started), n(m.ended), n(m.quit), raw(`${fmt(m.won)} <span style="color:var(--faint)">(${pct(m.won, m.ended)})</span>`)]))
+    : `<div class="empty">در این بازه بازی‌ای ثبت نشده.</div>`;
+
+  const sr = s.search, on = s.online;
+  const pair = (label, value) => `<div><div class="label">${label}</div><div class="value">${value}</div></div>`;
+  $("search").innerHTML = [
+    pair("جست‌وجو", fmt(sr.started)),
+    pair("پیدا شد", fmt(sr.found)),
+    pair("لغو شد", fmt(sr.cancelled)),
+    pair("میانهٔ انتظار", duration(sr.medianWaitSec)),
+    pair("میانگین انتظار", duration(sr.avgWaitSec)),
+    pair("انتظار تا لغو", duration(sr.avgCancelSec)),
+  ].join("");
+  $("online").innerHTML = [
+    pair("بازی شروع شد", fmt(on.started)),
+    pair("عمومی / دوستان", `${fmt(on.public)} / ${fmt(on.friends)}`),
+    pair("میانگین آدم‌ها", fmt(on.avgHumans)),
+    pair("میانگین طول بازی", duration(on.avgSec)),
+    pair("میانهٔ پر شدن میز", duration(on.medianFillSec)),
+    pair("رفتن پیش از پر شدن", fmt(on.leftBeforeFill)),
+  ].join("");
+
+  const slotName = { pregame_online: "پیش از بازی آنلاین", pregame_ai: "پیش از بازی با کامپیوتر", postgame: "پس از نتیجه" };
+  $("ads").innerHTML = table(["جا", "رسیده", "نمایش داده شده", "نسبت"],
+    s.ads.map((a) => [raw(`${esc(slotName[a.slot] || a.slot)}<span class="where">${esc(a.slot)}</span>`), n(a.reached), n(a.shown), pct(a.shown, a.reached)]));
+
+  bars("versions", s.versions);
+  bars("devices", s.devices);
+  bars("platforms", s.platforms);
+  bars("screens", s.screens, true);
+
+  $("errors").innerHTML = s.errors.length ? table(["پیام", "تعداد", "بازیکن", "آخرین بار", "نسخه"],
+    s.errors.map((e) => [raw(`<span class="msg">${esc(e.message)}</span>${e.file ? `<span class="where">${esc(e.file)}${e.line ? ":" + esc(e.line) : ""}</span>` : ""}`),
+      n(e.count), n(e.players), raw(`<span class="num">${esc(e.lastSeen)}</span>`), raw(`<span class="num">${esc(e.version)}</span>`)]))
+    : `<div class="empty">خطایی ثبت نشده.</div>`;
+  $("crashes").innerHTML = s.crashes.length ? table(["آخرین خط مهم گزارش", "تعداد", "بازیکن", "آخرین بار", "نسخه"],
+    s.crashes.map((e) => [raw(`<span class="msg">${esc(e.message)}</span><details><summary>گزارش کامل آخرین بار</summary><pre class="log">${esc(e.log)}</pre></details>`),
+      n(e.count), n(e.players), raw(`<span class="num">${esc(e.lastSeen)}</span>`), raw(`<span class="num">${esc(e.version)}</span>`)]))
+    : `<div class="empty">کرشی ثبت نشده.</div>`;
+}
+
+// table cells: plain values are escaped; raw() marks prepared HTML;
+// n() marks a number (right-aligned in the column's end)
+const raw = (html) => ({ html });
+const n = (v) => ({ html: fmt(v), num: true });
+function table(head, rows) {
+  const numCols = new Set();
+  rows.forEach((r) => r.forEach((c, i) => { if (c && c.num) numCols.add(i); }));
+  const th = head.map((h, i) => `<th class="${numCols.has(i) ? "n" : ""}">${esc(h)}</th>`).join("");
+  const body = rows.map((r) => "<tr>" + r.map((c, i) => {
+    const html = c && typeof c === "object" ? c.html : esc(c);
+    return `<td class="${numCols.has(i) ? "n num" : ""}">${html}</td>`;
+  }).join("") + "</tr>").join("");
+  return `<table><thead><tr>${th}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
+function bars(id, list, byCount) {
+  const el = $(id);
+  if (!list || !list.length) { el.innerHTML = `<div class="empty">چیزی ثبت نشده.</div>`; return; }
+  const key = byCount ? "count" : "players";
+  const max = Math.max(1, ...list.map((x) => x[key]));
+  el.innerHTML = list.slice(0, 12).map((x) => `<div class="r" title="${esc(x.name)}">
+      <span class="k ltr" style="text-align:right">${esc(x.name || "نامشخص")}</span>
+      <span class="v num">${fmt(x[key])}${byCount ? "" : ` <span style="color:var(--faint)">· ${fmt(x.count)} بار</span>`}</span>
+      <span class="track"><span class="fill" style="display:block;width:${(100 * x[key] / max).toFixed(1)}%"></span></span>
+    </div>`).join("");
+}
+
+// ---------------------------------------------------------------- the daily chart
+// Two lines on one axis (both are player counts): active players and new
+// players per Tehran day. Hand-drawn SVG, with a crosshair and a tooltip.
+function niceMax(v) {
+  if (v <= 20) return Math.max(4, Math.ceil(v / 4) * 4); // whole-number ticks
+  const p = Math.pow(10, Math.floor(Math.log10(v)));
+  for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= v) return m * p;
+  return 10 * p;
+}
+function drawDaily(daily) {
+  const box = $("dailyChart");
+  const W = Math.max(280, box.clientWidth || 600), H = W < 500 ? 200 : 240;
+  const M = { l: 36, r: 10, t: 10, b: 26 };
+  const iw = W - M.l - M.r, ih = H - M.t - M.b;
+  const N = daily.length;
+  const max = niceMax(Math.max(1, ...daily.map((d) => Math.max(d.active, d.new))));
+  const x = (i) => M.l + (N <= 1 ? iw / 2 : (i * iw) / (N - 1));
+  const y = (v) => M.t + ih - (v / max) * ih;
+  const path = (key) => daily.map((d, i) => (i ? "L" : "M") + x(i).toFixed(1) + "," + y(d[key]).toFixed(1)).join("");
+  let g = "";
+  for (let k = 0; k <= 4; k++) {
+    const v = (max * k) / 4, yy = y(v).toFixed(1);
+    g += `<line x1="${M.l}" x2="${W - M.r}" y1="${yy}" y2="${yy}" stroke="rgba(230,196,124,${k ? 0.08 : 0.25})"/>`;
+    g += `<text x="${M.l - 6}" y="${yy}" dy="4" text-anchor="end" font-size="11" fill="#8f8268">${fmt(v)}</text>`;
+  }
+  const step = Math.max(1, Math.ceil(N / (W < 500 ? 5 : 8)));
+  for (let i = N - 1; i >= 0; i -= step) {
+    g += `<text x="${x(i).toFixed(1)}" y="${H - 6}" text-anchor="middle" font-size="11" fill="#8f8268">${esc(dayLabel(daily[i].day))}</text>`;
+  }
+  const last = daily[N - 1];
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="بازیکنان فعال و تازه در هر روز">
+    ${g}
+    <path d="${path("new")}" fill="none" stroke="var(--s2)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="${path("active")}" fill="none" stroke="var(--s1)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${x(N - 1)}" cy="${y(last.active)}" r="4" fill="var(--s1)" stroke="#13110d" stroke-width="2"/>
+    <circle cx="${x(N - 1)}" cy="${y(last.new)}" r="4" fill="var(--s2)" stroke="#13110d" stroke-width="2"/>
+    <g id="hover" visibility="hidden">
+      <line id="hx" y1="${M.t}" y2="${M.t + ih}" stroke="rgba(243,232,208,.35)" stroke-dasharray="3 3"/>
+      <circle id="ha" r="5" fill="var(--s1)" stroke="#13110d" stroke-width="2"/>
+      <circle id="hn" r="5" fill="var(--s2)" stroke="#13110d" stroke-width="2"/>
+    </g>
+    <rect x="${M.l}" y="0" width="${iw}" height="${H}" fill="transparent" id="hit"/>
+  </svg><div class="tip" id="tip"></div>`;
+  const svg = box.querySelector("svg"), tip = $("tip"), hover = svg.querySelector("#hover");
+  const show = (ev) => {
+    const r = svg.getBoundingClientRect();
+    const px = ((ev.clientX - r.left) / r.width) * W;
+    const i = Math.max(0, Math.min(N - 1, Math.round(((px - M.l) / iw) * (N - 1))));
+    const d = daily[i];
+    hover.setAttribute("visibility", "visible");
+    svg.querySelector("#hx").setAttribute("x1", x(i)); svg.querySelector("#hx").setAttribute("x2", x(i));
+    svg.querySelector("#ha").setAttribute("cx", x(i)); svg.querySelector("#ha").setAttribute("cy", y(d.active));
+    svg.querySelector("#hn").setAttribute("cx", x(i)); svg.querySelector("#hn").setAttribute("cy", y(d.new));
+    tip.innerHTML = `<b>${esc(dayLabel(d.day))}</b>
+      <div class="row"><span><i style="background:var(--s1)"></i>فعال</span><span class="num">${fmt(d.active)}</span></div>
+      <div class="row"><span><i style="background:var(--s2)"></i>تازه</span><span class="num">${fmt(d.new)}</span></div>
+      <div class="row"><span>بازی</span><span class="num">${fmt(d.games)}</span></div>`;
+    const sx = (x(i) / W) * r.width;
+    const tw = tip.offsetWidth || 140;
+    tip.style.left = Math.max(0, Math.min(r.width - tw, sx - tw / 2)) + "px";
+    tip.style.top = "-6px";
+    tip.style.transform = "translateY(-100%)";
+    tip.classList.add("on");
+  };
+  const hide = () => { hover.setAttribute("visibility", "hidden"); tip.classList.remove("on"); };
+  svg.addEventListener("pointermove", show);
+  svg.addEventListener("pointerdown", show);
+  svg.addEventListener("pointerleave", hide);
+}
+let resizeTimer = 0;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { if (lastStats && !$("stats").hidden) drawDaily(lastStats.daily); }, 150);
+});
+
+// ---------------------------------------------------------------- settings
+let cfgLoaded = false, cfgCurrent = null;
+
+function fillForm(c) {
+  cfgCurrent = c;
+  $("ads_enabled").checked = !!c.ads.enabled;
+  $("slot_pregame_online").checked = !!c.ads.slots.pregame_online.enabled;
+  $("slot_pregame_ai").checked = !!c.ads.slots.pregame_ai.enabled;
+  $("slot_postgame").checked = !!c.ads.slots.postgame.enabled;
+  $("minIntervalSec").value = c.ads.minIntervalSec;
+  $("adBreakMaxSec").value = c.ads.adBreakMaxSec;
+  $("minVersion").value = c.minVersion;
+  $("latestVersion").value = c.latestVersion;
+  $("updateUrl").value = c.updateUrl;
+  $("updateMessage_fa").value = c.updateMessage.fa;
+  $("updateMessage_en").value = c.updateMessage.en;
+  const a = c.announcement || { id: "", fa: "", en: "" };
+  $("ann_id").value = a.id; $("ann_fa").value = a.fa; $("ann_en").value = a.en;
+  $("rate_enabled").checked = !!c.ratePrompt.enabled;
+  $("afterWins").value = c.ratePrompt.afterWins;
+  $("analytics_enabled").checked = !!c.analytics.enabled;
+  $("flushSec").value = c.analytics.flushSec;
+}
+
+function intField(id, lo, hi, name) {
+  const v = latin($(id).value).trim();
+  if (!/^\d+$/.test(v) || Number(v) < lo || Number(v) > hi) throw new Error(`${name} باید عددی از ${lo} تا ${hi} باشد`);
+  return Number(v);
+}
+const versionRe = /^\d{1,4}(\.\d{1,4}){0,3}$/;
+function cmpVersion(a, b) {
+  const pa = a.split(".").map(Number), pb = b.split(".").map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = pa[i] || 0, y = pb[i] || 0;
+    if (x !== y) return x < y ? -1 : 1;
+  }
+  return 0;
+}
+
+// readForm builds the whole config from the form, with the same checks the
+// server makes, so a mistake is caught before it is sent.
+function readForm() {
+  const minVersion = latin($("minVersion").value).trim();
+  const latestVersion = latin($("latestVersion").value).trim();
+  if (!versionRe.test(minVersion)) throw new Error("کمترین نسخه باید مثل 0.9.3 باشد");
+  if (!versionRe.test(latestVersion)) throw new Error("تازه‌ترین نسخه باید مثل 0.9.4 باشد");
+  if (cmpVersion(minVersion, latestVersion) > 0) throw new Error("کمترین نسخه از تازه‌ترین نسخه بالاتر است");
+  const ann = { id: latin($("ann_id").value).trim(), fa: $("ann_fa").value.trim(), en: $("ann_en").value.trim() };
+  let announcement = null;
+  if (ann.id || ann.fa || ann.en) {
+    if (!ann.id) throw new Error("اطلاعیه شناسه لازم دارد");
+    if (!ann.fa && !ann.en) throw new Error("اطلاعیه متن لازم دارد");
+    announcement = ann;
+  }
+  return {
+    ads: {
+      enabled: $("ads_enabled").checked,
+      minIntervalSec: intField("minIntervalSec", 0, 86400, "کمترین فاصلهٔ دو تبلیغ"),
+      adBreakMaxSec: intField("adBreakMaxSec", 5, 60, "بیشترین مکث برای تبلیغ"),
+      slots: {
+        pregame_online: { enabled: $("slot_pregame_online").checked },
+        pregame_ai: { enabled: $("slot_pregame_ai").checked },
+        postgame: { enabled: $("slot_postgame").checked },
+      },
+    },
+    minVersion, latestVersion,
+    updateUrl: $("updateUrl").value.trim(),
+    updateMessage: { fa: $("updateMessage_fa").value.trim(), en: $("updateMessage_en").value.trim() },
+    announcement,
+    ratePrompt: { enabled: $("rate_enabled").checked, afterWins: intField("afterWins", 0, 1000, "تعداد برد") },
+    analytics: { enabled: $("analytics_enabled").checked, flushSec: intField("flushSec", 5, 3600, "فاصلهٔ فرستادن آمار") },
+  };
+}
+
+function status(text, kind) {
+  const el = $("cfgStatus");
+  el.textContent = text;
+  el.className = "status" + (kind ? " " + kind : "");
+}
+
+async function loadConfig() {
+  $("cfgError").hidden = true;
+  status("در حال خواندن…");
+  try {
+    fillForm(await rpc("admin_get_config", {}));
+    cfgLoaded = true;
+    status("");
+  } catch (e) {
+    $("cfgError").textContent = "تنظیمات خوانده نشد: " + e.message;
+    $("cfgError").hidden = false;
+    status("");
+  }
+}
+
+$("cfg").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  let cfg;
+  try { cfg = readForm(); } catch (err) { status(err.message, "err"); return; }
+  $("save").disabled = true;
+  status("در حال ذخیره…");
+  try {
+    fillForm(await rpc("admin_set_config", cfg));
+    status("ذخیره شد؛ برنامه‌ها از همین حالا تنظیمات تازه را می‌گیرند.", "ok");
+  } catch (err) {
+    status("ذخیره نشد: " + err.message, "err");
+  } finally {
+    $("save").disabled = false;
+  }
+});
+$("cfgReload").onclick = () => loadConfig();
+$("annClear").onclick = () => {
+  $("ann_id").value = ""; $("ann_fa").value = ""; $("ann_en").value = "";
+  status("اطلاعیه پاک شد؛ برای اعمال، ذخیره کنید.");
+};
+$("annNewId").onclick = () => {
+  const d = new Date(), base = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  const old = latin($("ann_id").value).trim();
+  let letter = "a";
+  if (old.startsWith(base + "-")) letter = String.fromCharCode(Math.min(122, (old.charCodeAt(base.length + 1) || 96) + 1));
+  $("ann_id").value = base + "-" + letter;
+};
+
+// ---------------------------------------------------------------- start
+markRange();
+let startTab = "stats";
+try { startTab = localStorage.getItem("admin.tab") === "settings" ? "settings" : "stats"; } catch (e) { /* default */ }
+showTab(startTab);
+loadStats();
+</script>
+</body>
+</html>

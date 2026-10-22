@@ -6,9 +6,15 @@
 # before 0.9.3); the home page has its own site (aizood.ir). Veynoria
 # (veinora.mspink.ir, 127.0.0.1:7350) and the other sites are never touched.
 #
-#   ./deploy/deploy.sh                 # server + page + apk + home page
+#   ./deploy/deploy.sh                 # server + page + apk + admin + home page
 #   ./deploy/deploy.sh apk             # only the page and the apk
+#   ./deploy/deploy.sh admin           # only the admin page's files
 #   ./deploy/deploy.sh home            # only the aizood.ir home page
+#
+# The private admin page (deploy/admin) is served at /admin/ behind a
+# password. Its secrets are made on the server at the first deploy and kept in
+# /opt/splendor/.env (NAKAMA_HTTP_KEY, ADMIN_PASSWORD); nothing secret is in
+# the repo. Read the password with  grep ADMIN_PASSWORD /opt/splendor/.env
 #
 # Needs: the client key of the server (see C:\projects\my-servers\...).
 set -euo pipefail
@@ -49,6 +55,75 @@ rscp() {  # rscp <local file> <remote path>
   return 1
 }
 
+# install_site <site> <conf file on the server> <certbot arguments...>
+#
+# certbot manages the live site files (it added their https server blocks),
+# so a site file is replaced only when the repo's copy changed since it was
+# last installed (its hash is kept beside it). Then: the live file is backed
+# up, the new one copied in and certbot asked to put https back on it. If
+# certbot (tried 3 times: the VPS's DNS does not always reach Let's Encrypt)
+# or nginx -t fails, the backup goes back, nginx is reloaded with it, and the
+# deploy stops with an error. nginx is not reloaded before certbot has run,
+# so the live site keeps https throughout.
+install_site() {
+  local site="$1" conf="$2"; shift 2
+  {
+    printf 'SITE=%q\nCONF=%q\nCERTBOT_ARGS=(' "$site" "$conf"
+    printf ' %q' "$@"
+    printf ' )\n'
+    cat <<'REMOTE'
+set -euo pipefail
+LIVE=/etc/nginx/sites-available/$SITE
+HASH=/etc/nginx/sites-available/.$SITE.conf.sha256
+NEW_HASH=$(sha256sum "$CONF" | cut -d' ' -f1)
+OLD_HASH=$(sudo cat "$HASH" 2>/dev/null || true)
+if sudo test -f "$LIVE" && [ "$OLD_HASH" = "$NEW_HASH" ]; then
+  echo "the $SITE site is unchanged; its live file is kept"
+  exit 0
+fi
+BACKUP=""
+if sudo test -f "$LIVE"; then
+  BACKUP=/etc/nginx/sites-available/.$SITE.backup-$(date +%Y%m%d-%H%M%S)
+  sudo cp -p "$LIVE" "$BACKUP"
+  echo "backed up the live $SITE site to $BACKUP"
+fi
+restore() {
+  echo "!! $1" >&2
+  if [ -n "$BACKUP" ]; then
+    sudo cp -p "$BACKUP" "$LIVE"
+  else
+    sudo rm -f "$LIVE" "/etc/nginx/sites-enabled/$SITE"
+  fi
+  if sudo nginx -t; then sudo systemctl reload nginx; fi
+  echo "!! the previous $SITE site is back in place; the new one was NOT installed" >&2
+  exit 1
+}
+sudo cp "$CONF" "$LIVE"
+sudo ln -sf "$LIVE" "/etc/nginx/sites-enabled/$SITE"
+sudo nginx -t || restore "nginx -t refused the new $SITE site"
+# the copy is plain http: certbot puts https (and the redirect) back on it
+done_ok=0
+for n in 1 2 3; do
+  if sudo certbot --nginx "${CERTBOT_ARGS[@]}" \
+       --non-interactive --agree-tos --register-unsafely-without-email --redirect; then
+    done_ok=1
+    break
+  fi
+  echo "(certbot failed, attempt $n of 3)"
+  if [ "$n" -lt 3 ]; then sleep 30; fi
+done
+[ "$done_ok" = 1 ] || restore "certbot failed 3 times for the $SITE site"
+sudo nginx -t || restore "nginx -t failed after certbot on the $SITE site"
+sudo systemctl reload nginx
+echo "$NEW_HASH" | sudo tee "$HASH" >/dev/null
+# keep the three latest backups
+ls -1t /etc/nginx/sites-available/.$SITE.backup-* 2>/dev/null | tail -n +4 | xargs -r sudo rm -f
+echo "the $SITE site is updated, with https"
+REMOTE
+  } > "$TMP/site-$site.sh"
+  rsh "$TMP/site-$site.sh" bash -s
+}
+
 publish_web() {
   echo "== download page and apk"
   rsh - "sudo mkdir -p /var/www/splendor/download && sudo chown -R \$USER /var/www/splendor"
@@ -66,28 +141,19 @@ publish_home() {
   tar -C "$ROOT/deploy/home" -cf "$TMP/home.tar" .
   rsh "$TMP/home.tar" "tar -C /var/www/aizood -xf -"
   rscp "$ROOT/deploy/nginx/aizood.conf" /tmp/aizood.conf
-  cat > "$TMP/home.sh" <<REMOTE
-set -euo pipefail
-# a site that certbot already set up for this address is left as it is: a
-# fresh copy would be plain http until certbot answers, and the VPS's DNS
-# does not always reach Let's Encrypt
-if sudo grep -q "managed by Certbot" /etc/nginx/sites-available/aizood 2>/dev/null; then
-  echo "$HOME_DOMAIN already has https; its site file is kept"
-  exit 0
-fi
-sudo mv /tmp/aizood.conf /etc/nginx/sites-available/aizood
-sudo ln -sf /etc/nginx/sites-available/aizood /etc/nginx/sites-enabled/aizood
-sudo nginx -t && sudo systemctl reload nginx
-# the copy above is plain http: certbot puts https on it
-sudo certbot --nginx --cert-name $HOME_DOMAIN --reinstall -d $HOME_DOMAIN \\
-  --non-interactive --agree-tos --register-unsafely-without-email --redirect
-sudo nginx -t && sudo systemctl reload nginx
-REMOTE
-  rsh "$TMP/home.sh" bash -s
+  install_site aizood /tmp/aizood.conf --cert-name "$HOME_DOMAIN" --reinstall -d "$HOME_DOMAIN"
   curl -fsS -o /dev/null "https://$HOME_DOMAIN/" && echo " <- https://$HOME_DOMAIN/"
 }
 
+publish_admin() {
+  echo "== the admin page (https://$DOMAIN/admin/)"
+  rsh - "sudo mkdir -p /var/www/splendor-admin && sudo chown -R \$USER /var/www/splendor-admin"
+  tar -C "$ROOT/deploy/admin" -cf "$TMP/admin.tar" .
+  rsh "$TMP/admin.tar" "tar -C /var/www/splendor-admin -xf -"
+}
+
 if [ "${1:-}" = "apk" ]; then publish_web; exit 0; fi
+if [ "${1:-}" = "admin" ]; then publish_admin; exit 0; fi
 if [ "${1:-}" = "home" ]; then publish_home; exit 0; fi
 
 echo "== copying the server to /opt/splendor"
@@ -101,12 +167,25 @@ echo "== building and starting the server"
 cat > "$TMP/server.sh" <<'REMOTE'
 set -euo pipefail
 cd /opt/splendor
+rnd() { head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32; }
 if [ ! -f .env ]; then
-  rnd() { head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32; }
   sed -e "s/@POSTGRES@/$(rnd)/" -e "s/@SESSION@/$(rnd)/" -e "s/@REFRESH@/$(rnd)/" \
-      -e "s/@CONSOLE@/$(rnd)/" deploy/env.template > .env
+      -e "s/@CONSOLE@/$(rnd)/" -e "s/@HTTPKEY@/$(rnd)/" -e "s/@ADMINPW@/$(rnd)/" \
+      deploy/env.template > .env
   chmod 600 .env
   echo "created .env"
+  echo "the admin page's password is in /opt/splendor/.env (grep ADMIN_PASSWORD /opt/splendor/.env)"
+fi
+# the runtime http key and the admin page's password (0.9.4): made once
+if ! grep -q '^NAKAMA_HTTP_KEY=.' .env; then
+  sed -i '/^NAKAMA_HTTP_KEY=/d' .env
+  echo "NAKAMA_HTTP_KEY=$(rnd)" >> .env
+  echo "added a runtime http key to .env"
+fi
+if ! grep -q '^ADMIN_PASSWORD=.' .env; then
+  sed -i '/^ADMIN_PASSWORD=/d' .env
+  echo "ADMIN_PASSWORD=$(rnd)" >> .env
+  echo "made the admin page's password: it is in /opt/splendor/.env (grep ADMIN_PASSWORD /opt/splendor/.env)"
 fi
 # settings added after the first deploy: append them once
 if ! grep -q '^SMTP_HOST=' .env; then
@@ -129,27 +208,42 @@ echo "server did not answer"; docker logs --tail 60 splendor-nakama; exit 1
 REMOTE
 rsh "$TMP/server.sh" bash -s
 
-echo "== nginx site"
-cat > "$TMP/nginx.sh" <<REMOTE
+echo "== the admin page's key and password for nginx"
+cat > "$TMP/admin-secrets.sh" <<'REMOTE'
 set -euo pipefail
-# kept as it is once certbot set it up for both addresses (see the home page)
-if sudo grep -q "managed by Certbot" /etc/nginx/sites-available/splendor    && sudo grep -q "server_name .*$DOMAIN" /etc/nginx/sites-available/splendor; then
-  echo "the splendor site already has https for $DOMAIN; its site file is kept"
-  exit 0
+# from the server's .env: the runtime http key goes into an nginx include
+# (the site adds it to /admin/api/ calls), the password into an htpasswd file
+val() { grep "^$1=" /opt/splendor/.env | tail -n 1 | cut -d= -f2-; }
+KEY=$(val NAKAMA_HTTP_KEY)
+PW=$(val ADMIN_PASSWORD)
+if [ -z "$KEY" ] || [ -z "$PW" ]; then
+  echo "NAKAMA_HTTP_KEY or ADMIN_PASSWORD is missing in /opt/splendor/.env" >&2
+  exit 1
 fi
-sudo cp /opt/splendor/deploy/nginx/splendor.conf /etc/nginx/sites-available/splendor
-sudo ln -sf /etc/nginx/sites-available/splendor /etc/nginx/sites-enabled/splendor
-sudo nginx -t && sudo systemctl reload nginx
-# the copy above is plain http: certbot puts https back on it, with one
-# certificate for both addresses (issued again only when an address is new)
-sudo certbot --nginx --cert-name $OLD_DOMAIN --expand --reinstall -d $OLD_DOMAIN -d $DOMAIN \\
-  --non-interactive --agree-tos --register-unsafely-without-email --redirect
-sudo nginx -t && sudo systemctl reload nginx
+put() {  # put <file>: stdin into a root:www-data 640 file, replaced in one step
+  sudo tee "$1.new" >/dev/null
+  sudo chown root:www-data "$1.new"
+  sudo chmod 640 "$1.new"
+  sudo mv "$1.new" "$1"
+}
+printf 'set $splendor_admin_key "%s";\n' "$KEY" | put /etc/nginx/splendor-admin-key.conf
+printf 'admin:%s\n' "$(printf '%s' "$PW" | openssl passwd -apr1 -stdin)" | put /etc/nginx/splendor-admin.htpasswd
+echo "nginx has the admin key and password"
 REMOTE
-rsh "$TMP/nginx.sh" bash -s
+rsh "$TMP/admin-secrets.sh" bash -s
+
+publish_admin
+
+echo "== nginx site"
+# one certificate for both addresses (issued again only when an address is new)
+install_site splendor /opt/splendor/deploy/nginx/splendor.conf \
+  --cert-name "$OLD_DOMAIN" --expand --reinstall -d "$OLD_DOMAIN" -d "$DOMAIN"
 
 publish_web
 publish_home
 echo "== check"
 curl -fsS "https://$DOMAIN/healthcheck" && echo " <- https://$DOMAIN/healthcheck"
 curl -fsS "https://$OLD_DOMAIN/healthcheck" && echo " <- https://$OLD_DOMAIN/healthcheck (older apps)"
+code=$(curl -s -o /dev/null -w '%{http_code}' "https://$DOMAIN/admin/" || true)
+echo "admin page: https://$DOMAIN/admin/ (answers $code without the password; 401 is right)"
+echo "  user admin; the password is on the server: grep ADMIN_PASSWORD /opt/splendor/.env"

@@ -698,6 +698,22 @@ func connection_lost(on_leave: Callable) -> void:
 	_put(box, leave, Vector2((size_d.x - 440.0) * 0.5, size_d.y - 156.0), Vector2(440, 116))
 
 
+## A game against the computer is paused: the table stands still underneath,
+## a dialog that only Resume closes (a gem rests on it).
+func pause_overlay(on_resume: Callable) -> void:
+	var size_d := Vector2(1000, 520)
+	var dlg := _open_modal(size_d + Vector2(0, HEAD), false, L.t("paused_t"))
+	modal.process_mode = Node.PROCESS_MODE_ALWAYS  # the table is paused underneath
+	var box := _content(dlg)
+	_put(box, Kit.gem("green", 110.0 * s), Vector2((size_d.x - 110.0) * 0.5, 30), Vector2(110, 110))
+	var l := _para(box, L.t("paused_body"), TS.BODY, IVORY, Vector2(70, 170), size_d.x - 140.0)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var go := button(L.t("resume_btn"), Vector2(440, 124), "emerald", func():
+		close_modal()
+		on_resume.call(), 44.0)
+	_put(box, go, Vector2((size_d.x - 440.0) * 0.5, size_d.y - 166.0), Vector2(440, 124))
+
+
 func confirm(title: String, body: String, yes_text: String, on_yes: Callable) -> void:
 	var size_d := Vector2(1100, 470)
 	var box := _content(_open_modal(size_d + Vector2(0, HEAD), true, title))

@@ -55,6 +55,7 @@ class Shade:
 
 func start(b: Node) -> void:
 	board = b
+	Analytics.event("tutorial_start")
 	layer = 7
 	var vp: Vector2 = board.get_viewport().get_visible_rect().size
 	_s = board.layout.s
@@ -166,7 +167,7 @@ func _run() -> void:
 	shade.pass_all = false
 	shade.dim = 0.62
 	await _say(L.t("t_end"), L.t("tut_finish"))
-	_finish()
+	_finish(true)
 
 
 func _orin_turn(text: String) -> void:
@@ -178,7 +179,10 @@ func _orin_turn(text: String) -> void:
 	shade.dim = 0.62
 
 
-func _finish() -> void:
+## Leave the tutorial: played to the end (`completed`), or skipped.
+func _finish(completed := false) -> void:
+	if completed:
+		Analytics.event("tutorial_done")
 	Prefs.set_v("tutorial_done", true)
 	board.tut_gate = Callable()
 	board._to_menu()

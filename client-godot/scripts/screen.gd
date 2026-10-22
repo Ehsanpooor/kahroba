@@ -16,6 +16,7 @@ var vp := Vector2.ZERO
 var origin := Vector2.ZERO
 var arg: Variant = null  # what the opener passed
 var _dialog: Control
+var _dialog_locked := false  ## the open dialog cannot be closed (a forced update)
 var _note: Control
 var _pin_key := Callable()  ## a hardware key, while a dialog with a keypad is open
 
@@ -46,7 +47,8 @@ func build() -> void:
 ## Back button / Escape: closes an open dialog first. True when handled.
 func on_back() -> bool:
 	if _dialog and is_instance_valid(_dialog):
-		close_dialog()
+		if not _dialog_locked:
+			close_dialog()
 		return true
 	return false
 
@@ -160,6 +162,7 @@ func title_bar(title: String) -> void:
 ## (screen px, relative to the box) is box.get_meta("content").
 func dialog(sz: Vector2, title: String, closable := true) -> Control:
 	close_dialog()
+	_dialog_locked = not closable
 	var cover := Control.new()
 	cover.size = vp
 	cover.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -191,6 +194,7 @@ func dialog(sz: Vector2, title: String, closable := true) -> Control:
 
 func close_dialog() -> void:
 	_pin_key = Callable()
+	_dialog_locked = false
 	if _dialog and is_instance_valid(_dialog):
 		var d := _dialog
 		_dialog = null
@@ -201,8 +205,10 @@ func close_dialog() -> void:
 
 
 ## A dialog with a message and buttons ([text, style, callable] each), sized
-## to fit its text: nothing ever runs under the buttons.
-func message(title: String, body: String, buttons: Array, width := 1300.0) -> Control:
+## to fit its text: nothing ever runs under the buttons. A dialog that is not
+## `closable` has no close button, ignores Back, and stays open when its
+## buttons are pressed.
+func message(title: String, body: String, buttons: Array, width := 1300.0, closable := true) -> Control:
 	var px := TS.LABEL
 	var text_w := width * 0.8
 	var font := Fonts.get_font("serif")
@@ -210,7 +216,7 @@ func message(title: String, body: String, buttons: Array, width := 1300.0) -> Co
 	var bh := 128.0
 	# crest overlap + text + gap + buttons + footer room
 	var h := 150.0 + th + 70.0 + bh + 90.0
-	var box := dialog(Vector2(width, h), title)
+	var box := dialog(Vector2(width, h), title, closable)
 	var r: Rect2 = box.get_meta("content")
 	var p := Kit.para(body, px * u, text_w * u)
 	p.position = Vector2((box.size.x - text_w * u) * 0.5, r.position.y + 10.0 * u)
@@ -227,7 +233,8 @@ func message(title: String, body: String, buttons: Array, width := 1300.0) -> Co
 		b.position = Vector2((box.size.x / u - total) * 0.5 + i * (bw + gap), r.position.y / u + th + 80.0) * u
 		var cb: Callable = it[2]
 		b.pressed.connect(func():
-			close_dialog()
+			if closable:
+				close_dialog()
 			cb.call())
 		box.add_child(b)
 	return box

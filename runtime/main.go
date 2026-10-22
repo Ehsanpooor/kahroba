@@ -55,6 +55,25 @@ func InitModule(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runti
 	if err := initializer.RegisterRpc("email_verify", rpcEmailVerify); err != nil {
 		return err
 	}
+	if err := initializer.RegisterRpc("get_client_config", rpcGetClientConfig); err != nil {
+		return err
+	}
+	if err := initializer.RegisterRpc("track", rpcTrack); err != nil {
+		return err
+	}
+	// The admin page's RPCs: refused with a player's session, reached with
+	// the runtime http key through nginx (deploy/nginx/splendor.conf).
+	if err := initializer.RegisterRpc("admin_get_config", rpcAdminGetConfig); err != nil {
+		return err
+	}
+	if err := initializer.RegisterRpc("admin_set_config", rpcAdminSetConfig); err != nil {
+		return err
+	}
+	if err := initializer.RegisterRpc("admin_stats", rpcAdminStats); err != nil {
+		return err
+	}
+	loadClientConfig(ctx, logger, nk)
+	initAnalytics(ctx, logger, db)
 	if err := nk.LeaderboardCreate(ctx, LeaderboardID, true, "desc", "set", "", nil); err != nil {
 		logger.Warn("LeaderboardCreate: %v (may already exist)", err)
 	}

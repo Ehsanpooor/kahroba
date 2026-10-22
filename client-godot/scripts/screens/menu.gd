@@ -1,11 +1,17 @@
 extends Screen
 ## The main menu: the merchant's hall behind; on the left the title over a
 ## row of the five gems, PLAY (emerald) and three onyx choices; top right,
-## you (portrait, name, rating) and the settings button. A first-time player
-## is offered the tutorial.
+## you (portrait, name, rating), the settings button and, under it, the way
+## out of the app. A first-time player is offered the tutorial. The server's
+## word (a forced update, a new version, an announcement) and the rate prompt
+## come here too (Remote).
+
+const BAZAAR_APP := "bazaar://details?id=ir.aizood.splendor"
+const BAZAAR_WEB := "https://cafebazaar.ir/app/ir.aizood.splendor"
 
 static var _offered := false
 static var _synced := false  ## profile sent and rating read once per launch
+static var _update_sent := false  ## the forced update was accepted (tracked once a launch)
 
 
 func build() -> void:
@@ -68,6 +74,9 @@ func build() -> void:
 	var gear := Kit.round_button("settings", 140.0 * u)
 	put_at(gear, Vector2(mx(2200, 140), 30))
 	gear.pressed.connect(func(): go.emit("settings", null))
+	var door := Kit.round_button("door", 120.0 * u)
+	put_at(door, Vector2(mx(2210, 120), 190))
+	door.pressed.connect(_ask_exit)
 
 	if Net.online and not _synced:
 		_synced = true
@@ -80,13 +89,130 @@ func build() -> void:
 		if not Net.changed.is_connected(_on_net):
 			Net.changed.connect(_on_net)
 
+	if not Remote.updated.is_connected(_server_word):
+		Remote.updated.connect(_server_word)
+	if Remote.must_update():  # nothing else until the app is updated
+		_forced_update.call_deferred()
+		return
 	if not Prefs.get_v("tutorial_done") and not Prefs.get_v("tutorial_offered") and not _offered and saved.is_empty():
 		_offered = true
 		get_tree().create_timer(0.7).timeout.connect(_offer_tutorial)
+	else:
+		get_tree().create_timer(0.6).timeout.connect(_server_word)
+
+
+## Back on the menu (the app's home) asks before closing the app.
+func on_back() -> bool:
+	if super.on_back():
+		return true
+	_ask_exit()
+	return true
+
+
+func _ask_exit() -> void:
+	if Remote.must_update():
+		return
+	message(L.t("exit_t"), L.t("exit_body") if SavedGame.exists() else L.t("exit_bye"), [
+		[L.t("cancel"), "onyx", func(): pass],
+		[L.t("exit"), "ruby", func(): get_tree().quit()],
+	])
+
+
+# ------------------------------------------------------------------ the server's word
+
+## One dialog at a time, the most important first: a forced update, a new
+## version, an announcement, then (right after a win) the rate prompt.
+func _server_word() -> void:
+	if not is_inside_tree():
+		return
+	if Remote.must_update():
+		_forced_update()
+		return
+	if _dialog != null:
+		return
+	var latest := Remote.latest_version()
+	if Remote.update_available() and String(Prefs.get_v("seen_update")) != latest:
+		Prefs.set_v("seen_update", latest)
+		_update_notice(latest)
+		return
+	var ann := Remote.announcement()
+	if not ann.is_empty() and String(Prefs.get_v("seen_announcement")) != String(ann["id"]):
+		Prefs.set_v("seen_announcement", String(ann["id"]))
+		message(L.t("announce_t"), String(ann["text"]), [[L.t("ok"), "emerald", func(): pass]])
+		return
+	if OS.get_cmdline_user_args().has("--ratetest"):  # test: the rate prompt as after a win
+		Prefs.just_won = true
+		Prefs.set_v("rate_asked", false)
+		Prefs.set_v("wins", maxi(int(Prefs.get_v("wins")), Remote.rate_after_wins()))
+	if OS.get_cmdline_user_args().has("--exittest"):  # test: the exit question
+		_ask_exit()
+		return
+	if Prefs.just_won:
+		Prefs.just_won = false
+		if Remote.rate_prompt_on() and not Prefs.get_v("rate_asked") and int(Prefs.get_v("wins")) >= Remote.rate_after_wins():
+			_rate_prompt()
+
+
+## This version is too old to play: a dialog that cannot be closed, whose
+## one button opens the store.
+func _forced_update() -> void:
+	if not is_inside_tree() or (_dialog != null and _dialog_locked):
+		return
+	var body := Remote.update_message()
+	message(L.t("update_forced_t"), body if body != "" else L.t("update_forced"), [
+		[L.t("update_btn"), "emerald", func():
+			if not _update_sent:
+				_update_sent = true
+				Analytics.event("update_prompt", {"forced": true, "accepted": true})
+			OS.shell_open(Remote.update_url())],
+	], 1300.0, false)
+
+
+## A newer version is out: said once per version, and it can wait.
+func _update_notice(latest: String) -> void:
+	var body := Remote.update_message()
+	var answered := [false]
+	var box := message(L.t("update_t"), body if body != "" else L.t("update_notice", latest), [
+		[L.t("later"), "onyx", func():
+			answered[0] = true
+			Analytics.event("update_prompt", {"forced": false, "accepted": false})],
+		[L.t("update_btn"), "emerald", func():
+			answered[0] = true
+			Analytics.event("update_prompt", {"forced": false, "accepted": true})
+			OS.shell_open(Remote.update_url())],
+	])
+	box.tree_exiting.connect(func():  # closed with X, a tap outside or Back
+		if not answered[0]:
+			Analytics.event("update_prompt", {"forced": false, "accepted": false}))
+
+
+## Rate us on Cafe Bazaar: asked once, ever.
+func _rate_prompt() -> void:
+	Prefs.set_v("rate_asked", true)
+	var answered := [false]
+	var box := message(L.t("rate_t"), L.t("rate_body"), [
+		[L.t("later"), "onyx", func():
+			answered[0] = true
+			Analytics.event("rate_prompt", {"accepted": false})],
+		[L.t("rate_yes"), "emerald", func():
+			answered[0] = true
+			Analytics.event("rate_prompt", {"accepted": true})
+			_open_bazaar()],
+	])
+	box.tree_exiting.connect(func():
+		if not answered[0]:
+			Analytics.event("rate_prompt", {"accepted": false}))
+
+
+## The game's page in the Cafe Bazaar app, or on the web without it.
+func _open_bazaar() -> void:
+	if OS.get_name() == "Android" and OS.shell_open(BAZAAR_APP) == OK:
+		return
+	OS.shell_open(BAZAAR_WEB)
 
 
 func _offer_tutorial() -> void:
-	if not is_inside_tree():
+	if not is_inside_tree() or _dialog != null:
 		return
 	message(L.t("tut_title"), L.t("tut_body"), [
 		[L.t("later"), "onyx", func(): Prefs.set_v("tutorial_offered", true)],

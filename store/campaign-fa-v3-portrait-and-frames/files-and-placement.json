@@ -1,0 +1,82 @@
+[
+  {
+    "file": "01-gameplay-transparent-frame.png",
+    "width": 1672,
+    "height": 941,
+    "mode": "RGBA",
+    "transparent_pixels": 701078,
+    "opening_center_alpha": 0,
+    "transparent_bbox": [
+      191,
+      319,
+      1486,
+      879
+    ],
+    "use": "Place your screenshot on a layer behind this PNG; size it to cover the opening."
+  },
+  {
+    "file": "02-strategy-transparent-frame.png",
+    "width": 1672,
+    "height": 941,
+    "mode": "RGBA",
+    "transparent_pixels": 594690,
+    "opening_center_alpha": 0,
+    "transparent_bbox": [
+      249,
+      328,
+      1423,
+      875
+    ],
+    "use": "Place your screenshot on a layer behind this PNG; size it to cover the opening."
+  },
+  {
+    "file": "03-jewels-ad-portrait.png",
+    "width": 941,
+    "height": 1672,
+    "mode": "RGB",
+    "use": "Finished portrait advertisement."
+  },
+  {
+    "file": "04-challenge-ad-portrait-empty-screen.png",
+    "width": 941,
+    "height": 1672,
+    "mode": "RGBA",
+    "transparent_pixels": 231145,
+    "opening_center_alpha": 0,
+    "transparent_bbox": [
+      111,
+      732,
+      834,
+      1070
+    ],
+    "use": "Place your screenshot on a layer behind this PNG; size it to cover the opening."
+  },
+  {
+    "file": "05-friends-up-to-six-portrait.png",
+    "width": 941,
+    "height": 1672,
+    "mode": "RGB",
+    "use": "Finished portrait advertisement."
+  },
+  {
+    "file": "06-versus-computer-portrait.png",
+    "width": 941,
+    "height": 1672,
+    "mode": "RGB",
+    "use": "Finished portrait advertisement."
+  },
+  {
+    "file": "07-meet-the-nobles-portrait.png",
+    "width": 941,
+    "height": 1672,
+    "mode": "RGB",
+    "use": "Finished portrait advertisement."
+  },
+  {
+    "file": "08-build-your-collection-portrait.png",
+    "width": 941,
+    "height": 1672,
+    "mode": "RGB",
+    "use": "Finished portrait advertisement."
+  }
+]

@@ -27,6 +27,10 @@ const (
 	// OpReady answers the pre-game ready check (match_ready.go). Empty payload.
 	// Harmless outside the ready check, from a non-member, or when repeated.
 	OpReady int64 = 8
+	// OpAdDone ends this seat's part of the online ad break (match_ready.go),
+	// sent whether or not an ad was shown. Empty payload. Ignored outside the
+	// break, from a non-member, or when repeated.
+	OpAdDone int64 = 9
 )
 
 // Op codes — server to client (API_DOC §6.2).
@@ -41,6 +45,7 @@ const (
 	OpReadyState       int64 = 107 // ready-check roster and deadline, on every change
 	OpRemovedFromMatch int64 = 108 // to one player: you are out of this match, return to the menu
 	OpGameStarted      int64 = 109 // the ready check passed; carries firstSeat for the "who starts" reveal
+	OpAdBreak          int64 = 110 // everyone is ready: show the pre-game ad, then send AD_DONE
 )
 
 // Reasons carried by REMOVED_FROM_MATCH (op 108).
@@ -87,6 +92,13 @@ type msgGameStarted struct {
 	Seats       []string `json:"seats"`       // userId per seat, in seat order
 	Rated       bool     `json:"rated"`
 	ServerNowMs int64    `json:"serverNowMs"`
+}
+
+// msgAdBreak is AD_BREAK (op 110). The game starts when every human seat has
+// sent AD_DONE, or at DeadlineMs, whichever comes first.
+type msgAdBreak struct {
+	DeadlineMs  int64 `json:"deadlineMs"`
+	ServerNowMs int64 `json:"serverNowMs"`
 }
 
 type msgRejected struct {
@@ -318,4 +330,21 @@ func broadcastGameStarted(ms *MatchState, dispatcher runtime.MatchDispatcher, no
 		return
 	}
 	_ = dispatcher.BroadcastMessage(OpGameStarted, payload, nil, nil, true)
+}
+
+// sendAdBreak announces the ad break: to the whole table, or (pres != nil) to
+// one player who reconnected during it and has not answered yet.
+func sendAdBreak(ms *MatchState, dispatcher runtime.MatchDispatcher, pres runtime.Presence, nowMs int64) {
+	if dispatcher == nil {
+		return
+	}
+	payload, err := json.Marshal(msgAdBreak{DeadlineMs: ms.AdBreakUntilMs, ServerNowMs: nowMs})
+	if err != nil {
+		return
+	}
+	if pres == nil {
+		_ = dispatcher.BroadcastMessage(OpAdBreak, payload, nil, nil, true)
+		return
+	}
+	_ = dispatcher.BroadcastMessageDeferred(OpAdBreak, payload, []runtime.Presence{pres}, nil, true)
 }

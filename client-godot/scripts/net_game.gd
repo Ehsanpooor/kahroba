@@ -28,6 +28,8 @@ var _ready_state := {}
 var _game_started := {}
 var _ended := false
 var _resync := false  ## after a reconnect the next state replaces the table
+var ad_break := false  ## the server's ad break before the game: waiting for the others
+var _ad_sent := false
 
 
 func attach(board: Node) -> void:
@@ -77,6 +79,8 @@ func _on_message(op: int, data: Dictionary) -> void:
 			_removed(data)
 		Api.OP_REJECTED:
 			_rejected(data)
+		Api.OP_AD_BREAK:
+			_ad_break()
 		_:
 			if started:
 				_queue.append([op, data])
@@ -323,6 +327,19 @@ func ready_total() -> float:
 
 func send_ready() -> void:
 	Api.send_op(Api.OP_READY)
+
+
+## Everyone is ready and the server holds a short ad break: show this
+## device's ad (if any), then tell the server it is done. The game starts when
+## every player has, or at the server's deadline.
+func _ad_break() -> void:
+	if _ad_sent or _ended:
+		return
+	_ad_sent = true
+	ad_break = true
+	state_arrived.emit()  # the waiting room says so
+	await Ads.show("pregame_online")
+	Api.send_op(Api.OP_AD_DONE, {})
 
 
 func is_ended() -> bool:
@@ -692,22 +709,24 @@ func _game_ended(data: Dictionary) -> void:
 		return
 	var rows := []
 	var won := false
+	var place := 0
 	var deltas: Dictionary = data.get("ratingDeltas", {})
 	for st in data.get("standings", []):
 		var k := local(int(st.get("index", 0)))
 		var q := _seat_dict(k)
 		rows.append({"name": q["name"], "portrait": q["portrait"], "power": int(st.get("power", 0)),
 				"cards": int(st.get("hiredCount", 0)), "me": k == 0})
-		if k == 0 and int(st.get("rank", 9)) == 1:
-			won = true
+		if k == 0:
+			place = int(st.get("rank", 0))
+			won = place == 1
 	var my_delta := int(deltas.get(Api.user_id, 0))
 	if my_delta != 0:
 		Prefs.set_v("rating", int(Prefs.get_v("rating")) + my_delta)
-	b._record_game(won, my_delta)
+	b._record_game(won, my_delta, false, place)
 	var title := L.t("victory") if won else L.t("wins", String(rows[0]["name"]) if not rows.is_empty() else "")
 	b.hud.banner(L.t("you_win") if won else title, won)
 	await b._wait(1.8)
-	b.hud.show_results(rows, title, won, b._to_play, b._to_menu)
+	b.hud.show_results(rows, title, won, b.after_results(b._to_play), b.after_results(b._to_menu))
 	Api.leave_match()
 
 

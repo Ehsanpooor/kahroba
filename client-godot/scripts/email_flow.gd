@@ -96,6 +96,7 @@ static func _code_step(s: Screen, purpose: String, email: String, on_done: Calla
 		if not is_instance_valid(note):
 			return
 		if r["ok"]:
+			Analytics.event("email_linked" if purpose == "link" else "account_recovered")
 			s.close_dialog()
 			on_done.call(r["data"])
 			return

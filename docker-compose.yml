@@ -79,6 +79,7 @@ services:
         --console.username ${NAKAMA_CONSOLE_USER:-admin}
         --console.password ${NAKAMA_CONSOLE_PASSWORD:-password}
         --runtime.path /nakama/data/modules
+        --runtime.http_key ${NAKAMA_HTTP_KEY:-localdev-http-key}
     healthcheck:
       test: ["CMD", "/nakama/nakama", "healthcheck"]
       interval: 10s

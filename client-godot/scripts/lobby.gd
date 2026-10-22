@@ -315,6 +315,7 @@ func show_net(net: NetGame) -> void:
 	_setup()
 	_running = true
 	var sent_ready := [false]
+	var found_sent := [false]  ## analytics: the public table filled
 	var draw := func():
 		_setup()
 		var phase := net.phase()
@@ -337,8 +338,12 @@ func show_net(net: NetGame) -> void:
 			hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			_code_button(box, net.room_code, Vector2(70 + (CODE_COL - 70 - 560.0) * 0.5, top + 200))
 		else:
-			_text(box, L.t("ready_tap") if not sent_ready[0] else L.t("ready_gather"), TS.BODY, Kit.IVORY, "serif",
-					Rect2(0, top - 10, 1900, 50))
+			var line := L.t("ad_wait") if net.ad_break else (L.t("ready_tap") if not sent_ready[0] else L.t("ready_gather"))
+			_text(box, line, TS.BODY, Kit.IVORY, "serif", Rect2(0, top - 10, 1900, 50))
+			if net.search_started > 0.0 and net.room_code == "" and not found_sent[0]:  # a public table has filled
+				found_sent[0] = true
+				Analytics.event("search_found", {"players": net.lobby_seats().size(),
+						"sec": int(Time.get_unix_time_from_system() - net.search_started)})
 		var seats: Array = net.lobby_seats()
 		var n := seats.size()
 		_seats.clear()
@@ -398,6 +403,9 @@ func show_net(net: NetGame) -> void:
 		var leave := Kit.button(L.t("leave"), Vector2(300, 108) * _u, "onyx", "", 36.0 * _u)
 		leave.position = _px(Vector2(mx_left(), 880))
 		leave.pressed.connect(func():
+			if net.phase() == "waiting" and net.room_code == "" and net.search_started > 0.0:
+				Analytics.event("search_cancel", {"players": net.lobby_seats().size(),
+						"sec": int(Time.get_unix_time_from_system() - net.search_started)})
 			_running = false
 			net.leave_lobby())
 		add_child(leave)
