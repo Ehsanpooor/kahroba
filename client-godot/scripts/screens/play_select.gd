@@ -106,6 +106,9 @@ func _video_flow(spec: String) -> void:
 	if p.size() > 2:
 		g["difficulty"] = p[2]
 	Prefs.game = g
+	if p[0] == "friends":
+		g["room_players"] = int(p[1])
+		Prefs.game = g
 	_open(p[0])
 	await get_tree().create_timer(2.4).timeout
 	if _go_btn and is_instance_valid(_go_btn):
@@ -152,6 +155,7 @@ func _open(key: String) -> void:
 		jn.position = Vector2(bx + (0.0 if L.fa() else 530.0), box.size.y / u - 170.0) * u
 		box.add_child(mk)
 		box.add_child(jn)
+		_go_btn = mk  # (the store videos press it)
 		mk.pressed.connect(func():
 			close_dialog()
 			if _guard_net():
@@ -327,6 +331,11 @@ func _create_room(players: int, win: int) -> void:
 			_fail("")
 		return
 	Analytics.event("room_create", {"players": players})
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--codefile="):  # test: the friends in a recording read the code here
+			var f := FileAccess.open(a.get_slice("=", 1), FileAccess.WRITE)
+			f.store_string(String(r["data"].get("code", "")))
+			f.close()
 	await _enter(String(r["data"].get("matchId", "")), "", {"mode": "friends", "players": players, "win_points": win,
 			"code": String(r["data"].get("code", ""))})
 

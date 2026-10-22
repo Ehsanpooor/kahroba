@@ -182,6 +182,7 @@ func _init() -> void:
 
 func load_snapshot(s: Dictionary) -> void:
 	snap = s
+	style = String(s.get("style", ""))
 	_set_level(String(s.get("difficulty", "normal")))
 	var st := S.new()
 	var players: Array = s["players"]
@@ -234,6 +235,21 @@ func load_snapshot(s: Dictionary) -> void:
 	me = st.cur
 
 
+## Playing styles: each computer opponent at a table has its own, so they do
+## not all play alike. A style shifts what a player values (multipliers on the
+## weights, a few set values) without making it weaker or stronger overall.
+const STYLES := {
+	"builder": {"w_disc1": 1.35, "w_point": 0.85, "w_target3": 0.6},   # discounts first, points later
+	"noble": {"w_noble": 1.55, "w_noble2": 1.6, "w_disc1": 1.1},        # chases the nobles' colours
+	"reserver": {"w_reserve": 0.0, "res_close": 2.5, "w_res_far": 0.5}, # keeps cards back to plan
+	"rusher": {"w_point": 1.3, "w_target3": 2.0, "w_disc1": 0.85},      # goes for big cards early
+	"collector": {"w_coin": 1.5, "w_surplus": 0.5, "w_hoard": 0.4},     # holds gems, then buys in bursts
+}
+const STYLE_SET := {"w_reserve": true, "res_close": true}  # set to the value, not multiplied
+
+var style := ""
+
+
 func _set_level(lv: String) -> void:
 	var extra: Dictionary = overrides.get(lv, {})
 	level = String(extra.get("base", lv))
@@ -250,6 +266,14 @@ func _set_level(lv: String) -> void:
 	for k in extra:
 		if k != "base":
 			set(k, extra[k])
+	if STYLES.has(style) and level != "easy" and level != "legacy":
+		var st: Dictionary = STYLES[style]
+		for k in st:
+			if STYLE_SET.has(k):
+				set(k, st[k])
+			else:
+				set(k, float(get(k)) * float(st[k]))
+		noise = maxf(noise, 0.06)  # two equal moves are not always settled the same way
 	w_disc = PackedFloat32Array()
 	var v := 0.0
 	var step := w_disc1

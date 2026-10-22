@@ -390,3 +390,41 @@ func actionFor(m aiMove) (int64, interface{}) {
 		return OpActionHarvest, msgHarvest{Elements: elements}
 	}
 }
+
+// Playing styles: every computer player at a table plays its own way, so
+// they do not all make the same choices (a table of personas that all play
+// alike would give them away). A style shifts what a player values, not how
+// strong it is. Personas keep theirs from game to game; the computer seats
+// of a table each get a different one.
+var aiStyles = []string{"builder", "noble", "reserver", "rusher", "collector"}
+
+func withStyle(p aiProfile, style string) aiProfile {
+	w := &p.weights
+	switch style {
+	case "builder": // discounts first, points later
+		w.discountScale *= 1.3
+		w.point *= 0.9
+	case "noble": // chases the artifacts' (nobles') colours
+		w.artifact *= 1.5
+	case "reserver": // keeps cards back to plan
+		w.reserve *= 2.6
+	case "rusher": // goes for big cards early
+		w.point *= 1.25
+		w.target *= 1.2
+		w.discountScale *= 0.85
+	case "collector": // holds gems, then buys in bursts
+		w.coinUseful *= 1.5
+		w.hoard *= 2.0
+	}
+	return p
+}
+
+// styleOf is the style of the computer player in `seat`: a persona's own
+// (from its account), else one per seat, all different at one table.
+func styleOf(ms *MatchState, seat int) string {
+	p := &ms.Players[seat]
+	if p.Persona {
+		return aiStyles[hashOf(p.UserID)%uint32(len(aiStyles))]
+	}
+	return aiStyles[(seat+int(ms.Seed%int64(len(aiStyles)))+len(aiStyles))%len(aiStyles)]
+}

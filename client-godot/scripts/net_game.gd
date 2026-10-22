@@ -32,6 +32,17 @@ var _resync := false  ## after a reconnect the next state replaces the table
 ## few seconds the whole table is asked for again and rebuilt from it.
 const AWAIT_LIMIT := 8.0
 var _awaiting_for := 0.0
+## The table checks itself against the server (an online game must never sit
+## on the wrong turn): the server always moves the turn on by its deadline,
+## so a turn shown past that deadline, or a move whose animation never ends,
+## means this table missed something; it is then loaded again from the server.
+const PAST_DEADLINE := 5.0  # seconds a turn may be shown past its deadline
+const STUCK_LIMIT := 15.0  # seconds one move's animation may take
+var _drain_gen := 0  # a reload starts a new run of the queue; the old one stops
+var _item_started := 0.0
+var _turn_due := 0.0  # local seconds when the shown turn's deadline passes
+var _checking := false  # a check asked for the table: compare, replace if it differs
+var _shown_turn_no := 0
 var ad_break := false  ## the server's ad break before the game: waiting for the others
 var _ad_sent := false
 
@@ -59,9 +70,15 @@ func _on_message(op: int, data: Dictionary) -> void:
 		print("NET op=%d phase=%s started=%s" % [op, String(data.get("phase", "")), started])
 	match op:
 		Api.OP_STATE:
+			if _checking and started and not _resync:
+				_checking = false
+				if int(data.get("turnNumber", 0)) == _shown_turn_no and _queue.is_empty() and not _running:
+					return  # this table is right
+				push_warning("turn check: the table differs from the server; loading it again")
+				_resync = true
 			if _resync and started:
 				_resync = false
-				_queue.clear()
+				_restart_queue()
 				resync(data)
 				_start_turn_from(data.get("currentTurn", 0), int(data.get("turnDeadlineMs", 0)), int(data.get("serverNowMs", 0)),
 						int(data.get("turnNumber", 1)))
@@ -374,13 +391,17 @@ func _drain() -> void:
 	if _running:
 		return
 	_running = true
+	var g := _drain_gen
 	while not _queue.is_empty():
 		var it: Array = _queue.pop_front()
 		var op: int = it[0]
 		var data: Dictionary = it[1]
+		_item_started = _now()
 		match op:
 			Api.OP_STATE:
 				await _play_state(data)
+				if g != _drain_gen:
+					return  # the table was loaded again meanwhile: a new run took over
 			Api.OP_TURN:
 				_start_turn_from(data.get("playerIndex", 0), int(data.get("deadlineMs", 0)), int(data.get("serverNowMs", 0)),
 						int(data.get("turnNumber", 1)))
@@ -390,6 +411,8 @@ func _drain() -> void:
 					b.hud.toast(L.t("missed_turn", String(_seat_dict(k)["name"]), int(data.get("missedCount", 1))))
 			Api.OP_ENDED:
 				await _game_ended(data)
+				if g != _drain_gen:
+					return
 	_running = false
 
 
@@ -397,9 +420,12 @@ func _start_turn_from(seat_v: Variant, deadline_ms: int, now_ms: int, turn_numbe
 	var t := local(int(seat_v))
 	b.round_no = maxi((turn_number - 1) / maxi(n, 1) + 1, 1)
 	b.start_turn(t, true)
+	var left: float = b.hud.TURN_SECONDS
 	if deadline_ms > 0 and now_ms > 0:
-		var left := (deadline_ms - now_ms) / 1000.0
+		left = (deadline_ms - now_ms) / 1000.0
 		b.hud.turn_started = Time.get_ticks_msec() / 1000.0 - (b.hud.TURN_SECONDS - left)
+	_turn_due = _now() + maxf(left, 0.0)
+	_shown_turn_no = turn_number
 	awaiting = false
 
 
@@ -772,7 +798,42 @@ func _on_socket_closed() -> void:
 			return
 
 
+func _now() -> float:
+	return Time.get_ticks_msec() / 1000.0
+
+
+## Drop whatever the queue was playing: a reload replaces the table.
+func _restart_queue() -> void:
+	_drain_gen += 1
+	_running = false
+	_queue.clear()
+
+
+## Load the whole table from the server again.
+func reload(why: String) -> void:
+	if _ended or not started or _resync or not Api.socket_ready():
+		return
+	push_warning("turn check: %s; loading the table again" % why)
+	_restart_queue()
+	_resync = true
+	_turn_due = _now() + 20.0  # (no second reload while this one is on its way)
+	Api.send_op(Api.OP_SYNC)
+
+
+## Back in the app: ask the server which turn it is, and compare.
+func _notification(what: int) -> void:
+	if (what == NOTIFICATION_APPLICATION_RESUMED or what == NOTIFICATION_APPLICATION_FOCUS_IN) 			and started and not _ended and Api.socket_ready():
+		_checking = true
+		Api.send_op(Api.OP_SYNC)
+
+
 func _process(delta: float) -> void:
+	if started and not _ended and not get_tree().paused:
+		var now := _now()
+		if _running and now - _item_started > STUCK_LIMIT:
+			reload("a move took over %d s to show" % int(STUCK_LIMIT))
+		elif not _running and _turn_due > 0.0 and now > _turn_due + PAST_DEADLINE:
+			reload("the turn is past its deadline")
 	if not awaiting or _ended:
 		return
 	_awaiting_for += delta

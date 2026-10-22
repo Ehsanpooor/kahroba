@@ -131,7 +131,8 @@ func driveAISeat(ms *MatchState, tc turnCtx) *MatchState {
 	}
 
 	state, know := buildAIState(ms, seat)
-	decision := chooseMove(state, know, difficulty, ms.random())
+	profile := withStyle(profileFor(difficulty), styleOf(ms, seat))
+	decision := chooseMoveWithProfile(state, know, profile, ms.random())
 	op, payload := actionFor(decision.move)
 
 	tc.logger.Debug("ai seat=%d difficulty=%s sims=%d took=%s op=%d",

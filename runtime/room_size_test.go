@@ -34,3 +34,22 @@ func TestRoomSize_AIPlaysSixSeats(t *testing.T) {
 		}
 	}
 }
+
+// The computer seats of one table play in different styles.
+func TestAIStyles_DifferAtATable(t *testing.T) {
+	ms := NewMatchStateSeeded([]string{"a", "b", "c", "d"}, nil, false, 4, 11)
+	seen := map[string]bool{}
+	for seat := range ms.Players {
+		seen[styleOf(ms, seat)] = true
+	}
+	if len(seen) != 4 {
+		t.Errorf("styles at a table of 4: %v, want 4 different", seen)
+	}
+	base := profileFor(AIHard)
+	if withStyle(base, "noble").weights.artifact <= base.weights.artifact {
+		t.Error("the noble style should value artifacts more")
+	}
+	if base.weights != profileFor(AIHard).weights {
+		t.Error("withStyle must not change the shared profile")
+	}
+}

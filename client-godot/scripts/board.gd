@@ -277,6 +277,8 @@ func _apply_game_config() -> void:
 	# the computer players: merchants drawn at random, never in your own face
 	var pool: Array = Portraits.BOTS.filter(func(b): return b != Portraits.resolve(mine_portrait))
 	pool.shuffle()
+	var styles: Array = AIBrain.STYLES.keys()  # each opponent its own way of playing
+	styles.shuffle()
 	opps = []
 	for k in n - 1:
 		var bot: String = pool[k]
@@ -285,6 +287,7 @@ func _apply_game_config() -> void:
 			face = Portraits.BOT_FALLBACK[3]
 		var p := _new_player(L.t("bot_" + bot), face, [1080, 1150, 990][k % 3])
 		p["bot"] = bot
+		p["style"] = styles[k % styles.size()]
 		opps.append(p)
 	if mode == "tutorial":
 		opps = [_new_player(L.t("guide_name"), Portraits.guide(), 1200)]
@@ -2076,6 +2079,8 @@ func _ai_turn(i: int) -> void:
 		match String(mv["kind"]):
 			"buy":
 				await _ai_buy(i, mv["card"])
+			"buy_reserved":
+				await _ai_buy_reserved(i, int(mv["k"]))
 			"reserve":
 				await _ai_reserve(i, mv["card"])
 			_:
@@ -2091,6 +2096,9 @@ func _ai_turn(i: int) -> void:
 	if not _ai_legal(o, dec):  # never expected: the old computer's choice is always legal
 		brain.level = "legacy"
 		dec = brain.decide()
+	if OS.get_cmdline_user_args().has("--netdebug"):
+		print("AIMOVE round=%d %s style=%s %s %s" % [round_no, String(o["name"]), String(o.get("style", "")),
+				String(dec.get("kind", "")), str(dec.get("colors", dec.get("index", "")))])
 	match String(dec.get("kind", "skip")):
 		"buy":
 			await _ai_buy(i, cards[int(dec["index"])])
@@ -2134,7 +2142,7 @@ func _ai_snapshot(i: int) -> Dictionary:
 		"bank": bank_counts, "board": board, "players": players, "seat": i + 1,
 		"decks": {1: (decks[1] as Array).size(), 2: (decks[2] as Array).size(), 3: (decks[3] as Array).size()},
 		"nobles": noble_data, "noble_free": free, "first_seat": first_seat, "final_round": final_round,
-		"win_points": win_points, "difficulty": difficulty,
+		"win_points": win_points, "difficulty": difficulty, "style": String(opps[i].get("style", "")),
 	}
 
 
@@ -2711,14 +2719,22 @@ func _video_pace() -> float:
 ## {"kind": "take", "colors"}.
 func _video_move(p: Dictionary, reserver: bool) -> Dictionary:
 	var shown: Array = cards.filter(func(c: SCard): return c.visible and not c.data.is_empty())
-	if round_no == 2 and reserver and (p["reserved"] as Array).is_empty():
+	var keeps := reserver or (absi(String(p["name"]).hash()) % 3 == 0 and round_no == 1 + absi(String(p["name"]).hash()) % 2)
+	if (round_no == 2 or not reserver) and keeps and (p["reserved"] as Array).is_empty() and round_no <= 2:
+		# a card worth points that is near to buy: kept now, bought a round or two later
 		var best: SCard = null
+		var score := func(c: SCard) -> int:
+			return _gold_needed(p, c.data) * 3 - int(c.data.get("points", 0)) * 2
 		for c in shown:
-			if best == null or int(c.data.get("points", 0)) > int(best.data.get("points", 0)):
+			if best == null or score.call(c) < score.call(best):
 				best = c
 		if best:
 			return {"kind": "reserve", "card": best}
 	if round_no >= 3:
+		var res: Array = p["reserved"]
+		for k in res.size():  # a card kept back is bought first, once it can be
+			if can_afford(p, res[k]):
+				return {"kind": "buy_reserved", "k": k}
 		var buy: SCard = null
 		for c in shown:
 			if can_afford(p, c.data) and (buy == null or int(c.data.get("points", 0)) > int(buy.data.get("points", 0))):
@@ -2738,6 +2754,12 @@ func _video_move(p: Dictionary, reserver: bool) -> Dictionary:
 		var da := int(need.get(a, 0)) - int(p["coins"][a])
 		var db := int(need.get(b, 0)) - int(p["coins"][b])
 		return da > db if da != db else int(bank_counts[a]) > int(bank_counts[b]))
+	# players differ from the start: about half take two of the colour they
+	# need most in round 1, the others in round 2 (two of a colour need a pile
+	# of 4 or more); one in three keeps a card back in round 1 or 2 too
+	var two_round := 1 + absi(String(p["name"]).hash()) % 2
+	if round_no == two_round and not reserver and room >= 2 and not cols.is_empty() and int(bank_counts[cols[0]]) >= 4:
+		return {"kind": "take", "colors": [cols[0], cols[0]]}
 	return {"kind": "take", "colors": cols.slice(0, mini(3, room))}
 
 
@@ -2759,6 +2781,14 @@ func _video_my_move() -> void:
 			open_inspect(mv["card"])
 			await _wait(1.0)
 			_on_buy_pressed()
+		"buy_reserved":
+			open_fan()
+			await _wait(1.3)
+			var k := int(mv["k"])
+			if k < fan.size():
+				open_inspect(fan[k], k)
+				await _wait(1.1)
+				_on_buy_pressed()
 		"reserve":
 			open_inspect(mv["card"])
 			await _wait(1.2)
