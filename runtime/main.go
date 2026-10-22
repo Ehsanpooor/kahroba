@@ -46,9 +46,19 @@ func InitModule(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runti
 	if err := initializer.RegisterRpc("get_match_history", rpcGetMatchHistory); err != nil {
 		return err
 	}
+	if err := initializer.RegisterRpc("email_status", rpcEmailStatus); err != nil {
+		return err
+	}
+	if err := initializer.RegisterRpc("email_send_code", rpcEmailSendCode); err != nil {
+		return err
+	}
+	if err := initializer.RegisterRpc("email_verify", rpcEmailVerify); err != nil {
+		return err
+	}
 	if err := nk.LeaderboardCreate(ctx, LeaderboardID, true, "desc", "set", "", nil); err != nil {
 		logger.Warn("LeaderboardCreate: %v (may already exist)", err)
 	}
+	initPersonas(ctx, logger, nk)
 	if err := initializer.RegisterMatchmakerMatched(onMatchmakerMatched); err != nil {
 		return err
 	}

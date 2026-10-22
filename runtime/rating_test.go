@@ -24,6 +24,7 @@ type mockNK struct {
 	runtime.NakamaModule                   // nil — panics on any unimplemented call
 	store                map[string]string // "collection/key/userId" → JSON
 	lbWrites             []mockLBWrite
+	lbDeletes            []string
 }
 
 func newMockNK() *mockNK {
@@ -59,6 +60,11 @@ func (m *mockNK) StorageWrite(_ context.Context, writes []*runtime.StorageWrite)
 func (m *mockNK) LeaderboardRecordWrite(_ context.Context, id, ownerID, _ string, score, _ int64, _ map[string]interface{}, _ *int) (*api.LeaderboardRecord, error) {
 	m.lbWrites = append(m.lbWrites, mockLBWrite{id, ownerID, score})
 	return &api.LeaderboardRecord{Score: score}, nil
+}
+
+func (m *mockNK) LeaderboardRecordDelete(_ context.Context, id, ownerID string) error {
+	m.lbDeletes = append(m.lbDeletes, ownerID)
+	return nil
 }
 
 // ---------- helpers ----------
@@ -141,8 +147,9 @@ func newRatedMatchState(p0, p1 string) *MatchState {
 	return ms
 }
 
-// TestApplyRatingUpdates_RatedMatch: Alice (provisional) beats Bob (graduated).
-// Expect: both profiles written, Bob gets a leaderboard entry, Alice does not.
+// TestApplyRatingUpdates_RatedMatch: Alice (new) beats Bob (1250, graduated).
+// Expect: both profiles written; Bob, still at 1200 or more, is on the board;
+// Alice, below 1200, is not (her record is removed).
 func TestApplyRatingUpdates_RatedMatch(t *testing.T) {
 	mnk := newMockNK()
 	log := &mockLogger{t}
@@ -152,7 +159,7 @@ func TestApplyRatingUpdates_RatedMatch(t *testing.T) {
 
 	// Seed Bob as a graduated player (15 games already played).
 	seedProfile(mnk, bob, ratingProfile{
-		Rating:      1000,
+		Rating:      1250,
 		GamesPlayed: 15,
 		Provisional: false,
 	})
@@ -177,7 +184,7 @@ func TestApplyRatingUpdates_RatedMatch(t *testing.T) {
 	if alice_p.Rating <= DefaultRating {
 		t.Errorf("alice rating should have increased: got %d", alice_p.Rating)
 	}
-	if bob_p.Rating >= 1000 {
+	if bob_p.Rating >= 1250 {
 		t.Errorf("bob rating should have decreased: got %d", bob_p.Rating)
 	}
 
@@ -216,7 +223,7 @@ func TestApplyRatingUpdates_RatedMatch(t *testing.T) {
 	t.Logf("bob:   rating=%d provisional=%v", bob_p.Rating, bob_p.Provisional)
 }
 
-// TestApplyRatingUpdates_BothProvisional: neither player has enough games → no leaderboard writes.
+// TestApplyRatingUpdates_BothProvisional: both below 1200 → no leaderboard writes.
 func TestApplyRatingUpdates_BothProvisional(t *testing.T) {
 	mnk := newMockNK()
 	log := &mockLogger{t}
@@ -229,7 +236,7 @@ func TestApplyRatingUpdates_BothProvisional(t *testing.T) {
 	applyRatingUpdates(context.Background(), log, mnk, ms, testStandings(ms, 0))
 
 	if len(mnk.lbWrites) != 0 {
-		t.Errorf("expected 0 leaderboard writes for provisional players, got %d", len(mnk.lbWrites))
+		t.Errorf("expected 0 leaderboard writes below 1200, got %d", len(mnk.lbWrites))
 	}
 }
 
@@ -260,36 +267,29 @@ func TestApplyRatingUpdates_Draw(t *testing.T) {
 	}
 }
 
-// TestApplyRatingUpdates_ProvisionalGraduation: player crosses ProvisionalGames threshold this game → leaderboard write fires.
-func TestApplyRatingUpdates_ProvisionalGraduation(t *testing.T) {
+// TestApplyRatingUpdates_ReachesBoard: a player whose rating reaches 1200
+// this game is listed; one who stays below is not.
+func TestApplyRatingUpdates_ReachesBoard(t *testing.T) {
 	mnk := newMockNK()
 	log := &mockLogger{t}
 
-	const p0 = "user-grad"
+	const p0 = "user-climber"
 	const p1 = "user-fresh"
 
-	// p0 is on their last provisional game (GamesPlayed = ProvisionalGames-1).
-	seedProfile(mnk, p0, ratingProfile{
-		Rating:      1050,
-		GamesPlayed: ProvisionalGames - 1,
-		Provisional: true,
-	})
+	seedProfile(mnk, p0, ratingProfile{Rating: 1195, GamesPlayed: 30})
 
 	ms := newRatedMatchState(p0, p1)
 	applyRatingUpdates(context.Background(), log, mnk, ms, testStandings(ms, 0)) // p0 wins
 
 	p0p := loadProfileFromMock(mnk, p0)
-	if p0p.Provisional {
-		t.Errorf("p0 should have graduated: GamesPlayed=%d", p0p.GamesPlayed)
+	if p0p.Rating < LeaderboardMinRating {
+		t.Fatalf("p0 rating = %d, expected to reach %d", p0p.Rating, LeaderboardMinRating)
 	}
-	// Graduation this game → leaderboard write for p0.
-	lbForP0 := 0
+	listed := map[string]int{}
 	for _, w := range mnk.lbWrites {
-		if w.ownerID == p0 {
-			lbForP0++
-		}
+		listed[w.ownerID]++
 	}
-	if lbForP0 != 1 {
-		t.Errorf("expected 1 leaderboard write for p0 on graduation, got %d", lbForP0)
+	if listed[p0] != 1 || listed[p1] != 0 {
+		t.Errorf("board writes = %v, want p0 once and p1 never", listed)
 	}
 }

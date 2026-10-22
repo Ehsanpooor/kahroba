@@ -29,6 +29,11 @@ services:
       dockerfile: Dockerfile
     image: splendor/nakama:local
     container_name: splendor-nakama
+    # Name lookups (the mail server): Docker would ask Google DNS, which an
+    # Iranian VPS does not reach reliably; Shecan answers there.
+    dns:
+      - 178.22.122.100
+      - 8.8.8.8
     depends_on:
       postgres:
         condition: service_healthy
@@ -39,8 +44,22 @@ services:
       TURN_GRACE_SECONDS: "2"
       WIN_THRESHOLD: "18" # rated online games; private and AI games choose 15/18/21/25/30
       MATCH_TICK_HZ: "5"
-      LOBBY_WAIT_SECONDS: "300" # friends need time to type a room code
-      MATCHMAKER_TIMEOUT_SECONDS: "60"
+      LOBBY_WAIT_SECONDS: "900" # a friends' room waits 15 min for its players
+      READY_TIMEOUT_SECONDS: "45" # the Ready button, once a table is full
+      AI_HARD_THINK_MS: "${AI_HARD_THINK_MS:-320}"
+      AI_NORMAL_THINK_MS: "${AI_NORMAL_THINK_MS:-45}"
+      AI_VERYHARD_THINK_MS: "${AI_VERYHARD_THINK_MS:-1200}"
+      PERSONA_TIME_PERCENT: "${PERSONA_TIME_PERCENT:-100}"
+      # The mail account that sends recovery codes (runtime/mailer.go).
+      # Empty SMTP_HOST: the game runs, email recovery says "unavailable".
+      SMTP_HOST: "${SMTP_HOST:-}"
+      SMTP_PORT: "${SMTP_PORT:-587,2525,465}"
+      SMTP_USER: "${SMTP_USER:-}"
+      SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
+      SMTP_FROM: "${SMTP_FROM:-}"
+      SMTP_FROM_NAME: "${SMTP_FROM_NAME:-اسپلندور}"
+      SMTP_HEADERS: "${SMTP_HEADERS:-}"
+      SMTP_UNSUBSCRIBE: "${SMTP_UNSUBSCRIBE:-}"
       PROVISIONAL_GAMES: "10"
       ABANDON_MISS_LIMIT: "3"
       MAX_RESERVE: "3"

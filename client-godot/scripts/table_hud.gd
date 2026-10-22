@@ -58,6 +58,17 @@ var modal_closed_at := -10.0
 var _root: Control
 var me_view: PlayerView
 var seats: Array[PlayerView] = []
+## More than three opponents (a friends' room seats up to 6): their column
+## shows three at a time and scrolls (drag, or the mouse wheel), settling on
+## a whole seat; it turns to whoever is playing. Gem dots beside it show
+## which seats are in view.
+var _col: Control
+var _col_off := 0.0
+var _col_step := 0.0
+var _col_max := 0.0
+var _col_drag := false
+var _col_tw: Tween
+var _col_dots: Array[Control] = []
 var clock: TurnClock
 var _round: Label
 var _stage := {}
@@ -209,12 +220,23 @@ func build(layout: TLayout, me_p: Dictionary, opponents: Array, win: int) -> voi
 	add_child(_root)
 	move_child(_root, 0)
 	seats.clear()
+	_col = null
+	_col_dots.clear()
+	var parent := _root
+	if opps.size() > SEAT_TOPS.size():
+		_build_column()
+		parent = _col
 	for i in opps.size():
 		var v := PlayerView.new()
 		v.setup(opps[i], "seat", s)
-		_root.add_child(v)
-		v.position = Vector2(0, float(SEAT_TOPS[mini(i, 2)])) * PlayerView.K * s
+		parent.add_child(v)
+		if _col:
+			v.position = Vector2(0, i * _col_step - _col_off)
+		else:
+			v.position = Vector2(0, float(SEAT_TOPS[mini(i, 2)])) * PlayerView.K * s
 		seats.append(v)
+	if _col:
+		_col_set(_col_off)
 	me_view = PlayerView.new()
 	me_view.setup(me, "me", s)
 	_root.add_child(me_view)
@@ -227,6 +249,88 @@ func build(layout: TLayout, me_p: Dictionary, opponents: Array, win: int) -> voi
 	_build_stage()
 	_build_inspect()
 	_show_turn()
+
+
+func _build_column() -> void:
+	_col_step = (SEAT_TOPS[1] - SEAT_TOPS[0]) * PlayerView.K * s
+	_col_max = _col_step * (opps.size() - SEAT_TOPS.size())
+	_col_off = clampf(_col_off, 0.0, _col_max)
+	_col = Control.new()
+	_col.clip_contents = true
+	_col.mouse_filter = Control.MOUSE_FILTER_PASS  # taps still reach the board
+	_col.position = Vector2(0, SEAT_TOPS[0]) * PlayerView.K * s
+	_col.size = Vector2(PlayerView.SEAT_SIZE.x * s,
+			(SEAT_TOPS[2] - SEAT_TOPS[0]) * PlayerView.K * s + PlayerView.SEAT_SIZE.y * s)
+	_root.add_child(_col)
+	_col.gui_input.connect(_col_input)
+	# one gem per opponent beside the column: bright for the seats in view
+	var d := 40.0 * s
+	var gap := 18.0 * s
+	var total := opps.size() * d + (opps.size() - 1) * gap
+	for i in opps.size():
+		var g := Kit.gem("green", d)
+		g.position = Vector2(_col.size.x + 10.0 * s, _col.position.y + (_col.size.y - total) * 0.5 + i * (d + gap))
+		g.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_root.add_child(g)
+		_col_dots.append(g)
+
+
+func _col_input(e: InputEvent) -> void:
+	if e is InputEventMouseMotion and ((e as InputEventMouseMotion).button_mask & MOUSE_BUTTON_MASK_LEFT):
+		var dy := (e as InputEventMouseMotion).relative.y
+		if _col_drag or absf(dy) > 2.0:
+			_col_drag = true
+			if _col_tw:
+				_col_tw.kill()
+			_col_set(clampf(_col_off - dy, 0.0, _col_max))
+	elif e is InputEventMouseButton:
+		var mb := e as InputEventMouseButton
+		if mb.pressed and mb.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			_col_scroll(_col_off + _col_step)
+		elif mb.pressed and mb.button_index == MOUSE_BUTTON_WHEEL_UP:
+			_col_scroll(_col_off - _col_step)
+		elif not mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT and _col_drag:
+			_col_drag = false
+			_col_scroll(roundf(_col_off / _col_step) * _col_step)  # settle on a whole seat
+
+
+func _col_scroll(off: float) -> void:
+	if _col == null:
+		return
+	off = clampf(off, 0.0, _col_max)
+	if _col_tw:
+		_col_tw.kill()
+	_col_tw = _col.create_tween()
+	_col_tw.tween_method(_col_set, _col_off, off, 0.3).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+
+
+func _col_set(off: float) -> void:
+	_col_off = off
+	for i in seats.size():
+		seats[i].position.y = i * _col_step - off
+	var first := roundi(off / _col_step)
+	for i in _col_dots.size():
+		var on := i >= first and i < first + SEAT_TOPS.size()
+		_col_dots[i].modulate = Color.WHITE if on else Color(0.4, 0.4, 0.4, 0.75)
+
+
+## Turn the column so opponent i is in view.
+func show_seat(i: int) -> void:
+	if _col == null or i < 0 or i >= seats.size():
+		return
+	var first := roundi(_col_off / _col_step)
+	if i < first:
+		_col_scroll(i * _col_step)
+	elif i >= first + SEAT_TOPS.size():
+		_col_scroll((i - SEAT_TOPS.size() + 1) * _col_step)
+
+
+## A point on an opponent's seat, kept inside the column when it is scrolled away.
+func _seat_pt(p: Vector2) -> Vector2:
+	if _col == null:
+		return p
+	var r := _col.get_global_rect()
+	return Vector2(p.x, clampf(p.y, r.position.y + 30.0 * s, r.end.y - 30.0 * s))
 
 
 func _build_top() -> void:
@@ -359,6 +463,7 @@ func _show_turn() -> void:
 	me_view.set_active(turn == 0)
 	for i in seats.size():
 		seats[i].set_active(turn == i + 1)
+	show_seat(turn - 1)
 	if _round:
 		_round.text = L.t("round", round_no)
 
@@ -382,7 +487,7 @@ func _process(_delta: float) -> void:
 # ------------------------------------------------------------------ anchors (screen px)
 
 func opponent_anchor(i: int) -> Vector2:
-	return seats[i].portrait_point() if i >= 0 and i < seats.size() else lay.screen(Vector2(300, 540))
+	return _seat_pt(seats[i].portrait_point()) if i >= 0 and i < seats.size() else lay.screen(Vector2(300, 540))
 
 
 func me_anchor() -> Vector2:
@@ -406,18 +511,20 @@ func me_reserve_anchor() -> Vector2:
 
 
 func seat_token_anchor(i: int, col: String) -> Vector2:
-	return seats[i].token_point(col) if i >= 0 and i < seats.size() else opponent_anchor(i)
+	return _seat_pt(seats[i].token_point(col)) if i >= 0 and i < seats.size() else opponent_anchor(i)
 
 
 func seat_card_anchor(i: int, col: String) -> Vector2:
-	return seats[i].card_point(col) if i >= 0 and i < seats.size() else opponent_anchor(i)
+	return _seat_pt(seats[i].card_point(col)) if i >= 0 and i < seats.size() else opponent_anchor(i)
 
 
 func seat_reserve_anchor(i: int) -> Vector2:
-	return seats[i].reserve_point() if i >= 0 and i < seats.size() else opponent_anchor(i)
+	return _seat_pt(seats[i].reserve_point()) if i >= 0 and i < seats.size() else opponent_anchor(i)
 
 
 func opponent_at(sp: Vector2) -> int:
+	if _col and not _col.get_global_rect().has_point(sp):
+		return -1  # outside the column: no seat scrolled out of view answers
 	for i in seats.size():
 		if Rect2(seats[i].global_position, seats[i].size).has_point(sp):
 			return i
@@ -759,8 +866,10 @@ func show_results(rows: Array, title: String, mine_won: bool, on_again: Callable
 	# one row per player on the painted row art: everything sits inside its
 	# dark band, between the gem caps at the ends; the column titles are
 	# written once, above the rows
-	var row_h := 112.0
-	var step := 128.0
+	# five or six players (a friends' room): smaller rows, the same height as four
+	var k5: float = 1.0 if rows.size() <= 4 else (0.75 if rows.size() == 5 else 0.66)
+	var row_h := 112.0 * k5
+	var step := 128.0 * k5
 	var size_d := Vector2(1500, 250 + rows.size() * step)
 	var box := _content(_open_modal(size_d + Vector2(0, HEAD), false, title))
 	var w := size_d.x
@@ -768,6 +877,8 @@ func show_results(rows: Array, title: String, mine_won: bool, on_again: Callable
 	var cap := row_h / 127.0 * 118.0  # the gem cap at each end of the row art
 	var col_pts := rw - cap - 330.0
 	var col_cards := rw - cap - 170.0
+	var num_px := TS.NUM_M * k5
+	var name_px := TS.LABEL * (1.0 if k5 == 1.0 else 0.85)
 	_text(box, L.t("results_power"), TS.CAPTION, MUTED, "serif_bold", Vector2(60 + _mx(col_pts, 150, rw), 24), 150.0)
 	_text(box, L.t("results_cards"), TS.CAPTION, MUTED, "serif_bold", Vector2(60 + _mx(col_cards, 150, rw), 24), 150.0)
 	for k in rows.size():
@@ -788,19 +899,19 @@ func show_results(rows: Array, title: String, mine_won: bool, on_again: Callable
 			m.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 			m.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 			m.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			_put(row, m, Vector2(_mx(rx, 76, rw), mid - 38), Vector2(76, 76))
+			_put(row, m, Vector2(_mx(rx, 76, rw), mid - 38 * k5), Vector2(76, 76) * k5)
 		else:
-			_text(row, str(k + 1), TS.NUM_M, ink, "num", Vector2(_mx(rx, 76, rw), mid - TS.NUM_M * 0.8), 76.0)
-		var ad := 80.0
+			_text(row, str(k + 1), num_px, ink, "num", Vector2(_mx(rx, 76, rw), mid - num_px * 0.8), 76.0)
+		var ad := 80.0 * k5
 		var av := _avatar(String(r["portrait"]), ad)
 		av.position = Vector2(_mx(rx + 90, ad, rw), mid - ad * 0.5) * s
 		row.add_child(av)
 		var nx := rx + 190.0
 		var nw := col_pts - nx - 20.0
-		_text(row, String(r["name"]), TS.LABEL, ink, "serif_bold", Vector2(_mx(nx, nw, rw), mid - TS.LABEL * 0.8), nw, _start())
-		_text(row, "%d" % int(r["power"]), TS.NUM_M, GOLD if not mine else ink, "num",
-				Vector2(_mx(col_pts, 150, rw), mid - TS.NUM_M * 0.8), 150.0)
-		_text(row, "%d" % int(r["cards"]), TS.NUM_M, ink, "num", Vector2(_mx(col_cards, 150, rw), mid - TS.NUM_M * 0.8), 150.0)
+		_text(row, String(r["name"]), name_px, ink, "serif_bold", Vector2(_mx(nx, nw, rw), mid - name_px * 0.8), nw, _start())
+		_text(row, "%d" % int(r["power"]), num_px, GOLD if not mine else ink, "num",
+				Vector2(_mx(col_pts, 150, rw), mid - num_px * 0.8), 150.0)
+		_text(row, "%d" % int(r["cards"]), num_px, ink, "num", Vector2(_mx(col_cards, 150, rw), mid - num_px * 0.8), 150.0)
 	var again := button(L.t("play_again"), Vector2(380, 116), "emerald", func():
 		close_modal()
 		on_again.call())

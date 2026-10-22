@@ -15,20 +15,17 @@ func _ready() -> void:
 	await get_tree().process_frame
 	await Api.sync_profile()
 	var game := {}
-	if role == "search":  # the public matchmaker
-		var r := await Api.rpc_call("start_public_search", {"playerCount": 2})
-		print("NETTEST search ", r["ok"], " ", r["message"])
-		await Api.connect_socket()
-		var found := [{}]
-		Api.matched.connect(func(info: Dictionary): found[0] = info)
-		print("NETTEST ticket ", await Api.matchmaker_add(r["data"]))
-		while found[0].is_empty():
-			await get_tree().process_frame
-		print("NETTEST matched ", found[0])
-		print("NETTEST join ", await Api.join_match(String(found[0]["match_id"]), String(found[0]["token"])))
-		game = {"mode": "online", "players": 2}
+	if role == "search":  # a public table
+		var count := 4 if OS.get_cmdline_user_args().has("--four") else 2
+		var r := await Api.rpc_call("start_public_search", {"playerCount": count})
+		print("NETTEST table ", r["data"])
+		print("NETTEST join ", await Api.join_match(String(r["data"].get("matchId", ""))))
+		game = {"mode": "online", "players": count, "search_started": Time.get_unix_time_from_system()}
 	elif role == "host":
 		var count := 4 if OS.get_cmdline_user_args().has("--four") else 2
+		for a in OS.get_cmdline_user_args():
+			if a.begins_with("--players="):  # a bigger friends' room (up to 6)
+				count = int(a.get_slice("=", 1))
 		var r := await Api.rpc_call("create_private_match", {"playerCount": count, "winThreshold": 15})
 		print("NETTEST host room ", r["data"])
 		var f := FileAccess.open(codefile, FileAccess.WRITE)

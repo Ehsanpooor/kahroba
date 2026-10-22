@@ -54,6 +54,10 @@ var (
 	AbandonMissLimit = getEnvInt("ABANDON_MISS_LIMIT", 3)
 	MaxReserve       = getEnvInt("MAX_RESERVE", 3)
 	MaxCoins         = getEnvInt("COIN_HOLD_LIMIT", 10)
+
+	// PersonaTimePercent scales how long personas take to arrive at a table
+	// and to move (100 = as a person would). Lower only for testing.
+	PersonaTimePercent = getEnvInt("PERSONA_TIME_PERCENT", 100)
 )
 
 func getEnvInt(key string, def int) int {

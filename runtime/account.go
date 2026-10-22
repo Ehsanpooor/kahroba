@@ -14,6 +14,7 @@ type accountMetadata struct {
 	AvatarID      string  `json:"avatarId"`
 	Onboarded     bool    `json:"onboarded"`
 	ActiveMatchID *string `json:"activeMatchId"`
+	Email         string  `json:"email,omitempty"` // the recovery email, once checked
 }
 
 // validGenerations are the 5 clans a player picks at sign-up: the game's five
@@ -27,11 +28,11 @@ var validGenerations = map[string]bool{
 	"voidborn":  true,
 }
 
-// validAvatarIDs are the 30 merchant portraits (A-01..A-30) and "custom",
+// validAvatarIDs are the 32 merchant portraits (A-01..A-32) and "custom",
 // a player's own photo (shown only on their device; others see A-01).
 var validAvatarIDs = func() map[string]bool {
 	m := map[string]bool{"custom": true}
-	for i := 1; i <= 30; i++ {
+	for i := 1; i <= 32; i++ {
 		m[fmt.Sprintf("A-%02d", i)] = true
 	}
 	return m
@@ -132,5 +133,8 @@ func applyProfile(ms *MatchState, tc turnCtx, userID string) {
 	var meta accountMetadata
 	if raw := user.GetMetadata(); raw != "" && json.Unmarshal([]byte(raw), &meta) == nil {
 		ms.Players[seat].AvatarID = meta.AvatarID
+	}
+	if prof, err := readRatingProfile(tc.ctx, tc.nk, userID); err == nil && prof != nil {
+		ms.Players[seat].Rating = prof.Rating
 	}
 }

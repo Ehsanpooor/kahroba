@@ -111,7 +111,7 @@ func writeMatchHistory(
 
 		opponents := make([]string, 0, len(ms.Players)-1)
 		for j := range ms.Players {
-			if j != i && ms.Players[j].UserID != "" && !ms.Players[j].IsAI {
+			if j != i && ms.Players[j].UserID != "" && (!ms.Players[j].IsAI || ms.Players[j].Persona) {
 				opponents = append(opponents, ms.Players[j].UserID)
 			}
 		}

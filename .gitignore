@@ -38,3 +38,6 @@ __pycache__/
 *.pyc
 .DS_Store
 Thumbs.db
+
+# the mail account for the server (copied into its .env by deploy.sh)
+deploy/mail.env

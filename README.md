@@ -12,7 +12,7 @@ game server. Persian first, English in Settings.
 | `API_DOC.md`, `BACKEND_DOC.md` | The server's wire contract and design. |
 
 ## Play
-- Live server and download page: **https://splendor.mspink.ir** (APK at `/download/splendor.apk`).
+- Live server and download page: **https://splendor.aizood.ir** (also answers at splendor.mspink.ir, the address of builds before 0.9.3) (APK at `/download/splendor.apk`).
 - Against the computer the game runs on the device; online and friends' games run on the server.
 
 ## Run the server locally

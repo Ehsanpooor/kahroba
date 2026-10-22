@@ -417,3 +417,40 @@ bdi { direction: ltr; unicode-bidi: isolate; font-weight: 700; color: var(--gold
   .reveal, .hero__in { opacity: 1; transform: none; filter: none; }
   .grain { display: none; }
 }
+
+/* ---------------------------------------------------------------- 3a. about (the game, and why this one) */
+
+.about { padding: clamp(60px, 12vw, 120px) var(--gutter) 0; }
+.about__grid { display: grid; gap: 16px; max-width: 1180px; margin: 0 auto; }
+.about__card {
+  padding: 24px; border-radius: 18px;
+  background: linear-gradient(160deg, rgba(22, 48, 31, .7), rgba(19, 17, 13, .9));
+  border: 1px solid var(--line);
+}
+.about__card h3 { margin: 0 0 8px; font-size: 19px; font-weight: 800; color: var(--gold); line-height: 1.5; }
+.about__card p { margin: 0; color: var(--muted); font-size: 16px; line-height: 1.95; }
+.about__card strong { color: var(--ivory); }
+@media (min-width: 1000px) { .about__grid { grid-template-columns: repeat(3, 1fr); } }
+
+/* ---------------------------------------------------------------- 9b. questions */
+
+.faq { padding: clamp(60px, 12vw, 120px) var(--gutter) 0; }
+.faq__list { max-width: 860px; margin: 0 auto; display: grid; gap: 10px; }
+.qa {
+  border-radius: 16px; border: 1px solid var(--line);
+  background: linear-gradient(160deg, rgba(22, 48, 31, .55), rgba(19, 17, 13, .9));
+}
+.qa summary {
+  cursor: pointer; list-style: none; padding: 16px 20px; font-weight: 800; font-size: 17px; color: var(--ivory);
+  display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 52px;
+}
+.qa summary::-webkit-details-marker { display: none; }
+.qa summary::after { content: "+"; color: var(--gold); font-size: 22px; line-height: 1; transition: transform .2s var(--ease); }
+.qa[open] summary::after { transform: rotate(45deg); }
+.qa summary:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; border-radius: 16px; }
+.qa p { margin: 0; padding: 0 20px 18px; color: var(--muted); font-size: 16px; line-height: 1.9; }
+.faq__en {
+  max-width: 860px; margin: 22px auto 0; color: var(--muted); font-size: 14.5px; line-height: 1.7;
+  font-family: Georgia, "Times New Roman", serif; text-align: left;
+}
+.faq__en strong { color: var(--gold); }

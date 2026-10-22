@@ -58,6 +58,7 @@ type readySeat struct {
 	AvatarID    string `json:"avatarId"`
 	Ready       bool   `json:"ready"`
 	IsAI        bool   `json:"isAI"`
+	Rating      int    `json:"rating,omitempty"`
 	Open        bool   `json:"open"`       // seat held for a replacement from the queue
 	DeadlineMs  int64  `json:"deadlineMs"` // this seat's own deadline (ready or refill); 0 once ready
 }
@@ -254,7 +255,8 @@ func readyStateMessage(ms *MatchState, nowMs int64) msgReadyState {
 			DisplayName: p.DisplayName,
 			AvatarID:    p.AvatarID,
 			Ready:       p.Ready && !p.SeatOpen,
-			IsAI:        p.IsAI,
+			IsAI:        p.IsAI && !p.Persona,
+			Rating:      p.Rating,
 			Open:        p.SeatOpen,
 		}
 		switch {

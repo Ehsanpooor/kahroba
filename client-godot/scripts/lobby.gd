@@ -22,6 +22,9 @@ var _ready_btn: Button
 var _count: Label
 var _bar: ColorRect
 var _deadline := 0.0
+var _ready_total := READY_SECONDS  ## the ready countdown's full length (the server's)
+var _search_lbl: Label  ## "finding players… 1:23" at a public table that is filling
+var _search_t0 := 0.0
 var _running := false
 
 
@@ -91,21 +94,40 @@ func _dialog(title: String, tall := false) -> Control:
 
 ## Seat i's centre inside the dialog (design px), for n players.
 ## `left`: a column on the left is taken (the room code); the seats share the rest.
+## One row while the seats fit; a friends' room of 5 or 6 can take two rows of
+## smaller seats (_seat_k).
 func _seat_c(i: int, n: int, left := 0.0) -> Vector2:
-	var step := minf(400.0, (1900.0 - left - 120.0) / maxf(n, 1))
+	var rows := _seat_rows(n, left)
+	var per := ceili(n / float(rows))
+	var row := i / per
+	var in_row := mini(per, n - row * per)
+	var j := i - row * per
+	var step := minf(400.0, (1900.0 - left - 120.0) / maxf(per, 1))
 	var mid := left + (1900.0 - left) * 0.5
-	var k := (n - 1 - i) if L.fa() else i
-	return Vector2(mid + (k - (n - 1) * 0.5) * step, 330)
+	var k := (in_row - 1 - j) if L.fa() else j
+	var y: float = 330.0 if rows == 1 else [212.0, 430.0][row]
+	return Vector2(mid + (k - (in_row - 1) * 0.5) * step, y)
+
+
+func _seat_rows(n: int, left := 0.0) -> int:
+	return 1 if (1900.0 - left - 120.0) / maxf(n, 1) >= 250.0 else 2
+
+
+## The seats' size for n players: whole in one row, smaller in two.
+func _seat_k(n: int, left := 0.0) -> float:
+	return 1.0 if _seat_rows(n, left) == 1 else 0.62
 
 
 ## One player's seat: the portrait in its gold frame, the name, the rating,
 ## and a status line under it.
-func _seat(box: Control, p: Dictionary, c: Vector2, mine: bool) -> Control:
+func _seat(box: Control, p: Dictionary, c: Vector2, mine: bool, k := 1.0) -> Control:
 	var holder := Control.new()
 	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	holder.size = Vector2(340, 400) * _u
 	holder.position = (c - Vector2(170, 170)) * _u
 	holder.pivot_offset = Vector2(170, 170) * _u
+	holder.scale = Vector2.ONE * k
+	holder.set_meta("k", k)
 	box.add_child(holder)
 	var av := Kit.avatar(String(p["portrait"]), 240.0 * _u)
 	av.position = Vector2(50, 50) * _u
@@ -130,7 +152,7 @@ func show_ready(players: Array, auto := false) -> void:
 	var sub := _text(box, L.t("ready_gather"), TS.BODY, Kit.IVORY, "serif", Rect2(0, r.position.y / _u - 10, 1900, 50))
 	var n := players.size()
 	for i in n:
-		var h := _seat(box, players[i], _seat_c(i, n), i == 0)
+		var h := _seat(box, players[i], _seat_c(i, n), i == 0, _seat_k(n))
 		var st := _text(h, L.t("waiting"), TS.CAPTION, Kit.MUTED, "sans_bold", Rect2(0, 380, 340, 36))
 		_seats.append(h)
 		_stamps.append(null)
@@ -210,11 +232,18 @@ func _press_ready() -> void:
 	ready_pressed.emit()
 
 
+func _tick_search() -> void:
+	if _search_lbl and is_instance_valid(_search_lbl):
+		var s := int(Time.get_unix_time_from_system() - _search_t0)
+		_search_lbl.text = "%s  %d:%02d" % [L.t("searching_sub"), s / 60, s % 60]
+
+
 func _process(_delta: float) -> void:
+	_tick_search()
 	if _running and _count and is_instance_valid(_count) and _bar and is_instance_valid(_bar):
 		var left := _left()
 		_count.text = "%d:%02d" % [int(left) / 60, int(left) % 60]
-		_bar.scale.x = left / READY_SECONDS
+		_bar.scale.x = left / maxf(_ready_total, 1.0)
 
 
 # ------------------------------------------------------------------ who plays first
@@ -231,7 +260,7 @@ func choose_starter(players: Array, index: int) -> void:
 	var n := players.size()
 	var seats: Array[Control] = []
 	for i in n:
-		seats.append(_seat(box, players[i], _seat_c(i, n), i == 0))
+		seats.append(_seat(box, players[i], _seat_c(i, n), i == 0, _seat_k(n)))
 	var light := Kit.gem("white", 120.0 * _u)
 	light.pivot_offset = light.size * 0.5
 	box.add_child(light)
@@ -242,7 +271,8 @@ func choose_starter(players: Array, index: int) -> void:
 		var cur := k % n
 		for j in n:
 			var on := j == cur
-			seats[j].create_tween().tween_property(seats[j], "scale", Vector2.ONE * (1.1 if on else 0.92), t * 0.8)
+			var k0 := float(seats[j].get_meta("k", 1.0))
+			seats[j].create_tween().tween_property(seats[j], "scale", Vector2.ONE * k0 * (1.1 if on else 0.92), t * 0.8)
 			seats[j].modulate = Color(1.12, 1.08, 1.0) if on else Color(0.6, 0.6, 0.62)
 		light.position = seats[cur].position + Vector2(110, -60) * _u
 		Sfx.play("clock_tick", 0.0, -4.0)
@@ -251,7 +281,7 @@ func choose_starter(players: Array, index: int) -> void:
 	var win := seats[index]
 	Sfx.play("token_pick")
 	var tw := create_tween().set_parallel(true)
-	tw.tween_property(win, "scale", Vector2.ONE * 1.22, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_property(win, "scale", Vector2.ONE * float(win.get_meta("k", 1.0)) * 1.22, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	for j in n:
 		if j != index:
 			tw.tween_property(seats[j], "modulate:a", 0.3, 0.35)
@@ -290,10 +320,18 @@ func show_net(net: NetGame) -> void:
 		var phase := net.phase()
 		var waiting := phase == "waiting"
 		var with_code := waiting and net.room_code != ""
-		var box := _dialog(L.t("room_code") if with_code else L.t("ready_title"))
+		var searching := waiting and not with_code
+		var title := L.t("room_code") if with_code else (L.t("searching_title") if searching else L.t("ready_title"))
+		var box := _dialog(title)
 		var r: Rect2 = box.get_meta("content")
 		var top := r.position.y / _u
-		if waiting and net.room_code != "":
+		_search_lbl = null
+		if searching:
+			# a public table filling up: players sit down one by one
+			_search_t0 = net.search_started if net.search_started > 0.0 else Time.get_unix_time_from_system()
+			_search_lbl = _text(box, "", TS.BODY, Kit.IVORY, "serif", Rect2(0, top - 10, 1900, 50))
+			_tick_search()
+		elif waiting and net.room_code != "":
 			# the code on the left, the seats on the right
 			var hint := _text(box, L.t("room_waiting"), TS.BODY, Kit.IVORY, "serif", Rect2(70, top + 40, CODE_COL - 70, 130))
 			hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -308,12 +346,15 @@ func show_net(net: NetGame) -> void:
 		_status.clear()
 		for i in n:
 			var sd: Dictionary = seats[i]
-			var c := _seat_c(i, n, CODE_COL if with_code else 0.0)
+			var left := CODE_COL if with_code else 0.0
+			var c := _seat_c(i, n, left)
 			if sd["open"] or String(sd["name"]) == "":
 				var h := Control.new()
 				h.mouse_filter = Control.MOUSE_FILTER_IGNORE
 				h.size = Vector2(340, 400) * _u
 				h.position = (c - Vector2(170, 170)) * _u
+				h.pivot_offset = Vector2(170, 170) * _u
+				h.scale = Vector2.ONE * _seat_k(n, left)
 				box.add_child(h)
 				var g := Kit.gem("white", 120.0 * _u)
 				g.position = Vector2(110, 110) * _u
@@ -324,7 +365,7 @@ func show_net(net: NetGame) -> void:
 				_stamps.append(null)
 				_status.append(null)
 				continue
-			var hs := _seat(box, sd, c, sd["me"])
+			var hs := _seat(box, sd, c, sd["me"], _seat_k(n, left))
 			var st := _text(hs, "" if waiting else L.t("waiting"), TS.CAPTION, Kit.MUTED, "sans_bold", Rect2(0, 380, 340, 36))
 			_seats.append(hs)
 			_stamps.append(null)
@@ -347,6 +388,7 @@ func show_net(net: NetGame) -> void:
 		if phase == "readyCheck":
 			_count = _text(self, "", TS.NUM_S, Kit.IVORY, "num", Rect2(1480, 880, 200, 110))
 			_deadline = Time.get_ticks_msec() / 1000.0 + net.ready_left()
+			_ready_total = net.ready_total()
 			_bar = ColorRect.new()
 			_bar.color = Kit.GOLD_DEEP
 			_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE

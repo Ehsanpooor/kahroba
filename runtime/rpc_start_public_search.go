@@ -56,6 +56,9 @@ type startPublicSearchResponse struct {
 	// join is refused the seat has gone: carry on with the matchmaker using the
 	// parameters above, which are always returned.
 	RefillMatchID string `json:"refillMatchId,omitempty"`
+	// MatchID is the public table to sit at (open seats, or a new table):
+	// join it on the socket. Newer clients use only this.
+	MatchID string `json:"matchId"`
 }
 
 // rpcStartPublicSearch implements the start_public_search RPC (BACKEND_DOC §16.2).
@@ -87,14 +90,25 @@ func rpcStartPublicSearch(ctx context.Context, logger runtime.Logger, db *sql.DB
 	params := matchSearchParams{PlayerCount: req.PlayerCount}
 	minCount, maxCount, query, strProps, numProps := params.toMatchmakerArgs()
 
+	refill := findRefillMatch(ctx, logger, nk, req.PlayerCount)
+	table := refill
+	if table == "" {
+		id, err := openPublicTable(ctx, nk, req.PlayerCount)
+		if err != nil {
+			return "", runtime.NewError("failed to open a table", 13)
+		}
+		table = id
+	}
+
 	out, _ := json.Marshal(startPublicSearchResponse{
+		MatchID:           table,
 		MinCount:          minCount,
 		MaxCount:          maxCount,
 		Query:             query,
 		StringProperties:  strProps,
 		NumericProperties: numProps,
 		TimeoutSeconds:    MatchmakerTimeoutSeconds,
-		RefillMatchID:     findRefillMatch(ctx, logger, nk, req.PlayerCount),
+		RefillMatchID:     refill,
 	})
 	return string(out), nil
 }

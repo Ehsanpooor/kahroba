@@ -1,16 +1,12 @@
 extends Screen
-## The best players by rating, on painted rows: medals for the top three,
-## your own ivory row pinned at the bottom. Live rankings come from the
-## server once the client is online; until then a sample table.
+## The ten best players by rating, on painted rows: medals for the top
+## three, your own ivory row pinned at the bottom with your rating. A player
+## needs a rating of 1200 to be listed. Live from the server; offline, the
+## last board seen (or an empty board) and a note.
 
-const SAMPLE := [
-	["Kaveh", "H-07", 1684, 212], ["Morad", "M-12", 1631, 187], ["Sahar", "M-17", 1598, 240],
-	["Nima Arvand", "D-09", 1560, 133], ["Leila", "E-03", 1544, 158], ["Darius", "V-05", 1519, 97],
-	["Shirin", "E-11", 1497, 120], ["Arash", "D-02", 1476, 88], ["Roya", "H-12", 1452, 143],
-	["Bahram", "V-11", 1430, 76], ["Mina", "M-09", 1411, 102], ["Farhad", "D-14", 1398, 64],
-	["Parisa", "E-07", 1380, 91], ["Kian", "H-03", 1366, 55], ["Yasmin", "V-02", 1349, 70],
-]
 const LIST := Rect2(300, 260, 1800, 590)
+const TOP := 10
+const MIN_RATING := 1200  ## the server lists players from this rating up
 
 ## The live board from the server, once fetched: [[name, portrait, rating, -1, me], ...]
 static var _live: Array = []
@@ -21,9 +17,12 @@ const ROW := Vector2(1800, 132)
 func build() -> void:
 	backdrop("screen_bg", 0.3)
 	title_bar(L.t("leaderboard"))
-	var live := Net.online and _loaded
-	if not live:
-		text(L.t("sample_board"), TS.CAPTION, Color(0.9, 0.66, 0.45), "serif", Rect2(0, 1032, D.x, 40))
+	var live := _loaded
+	var mine := int(Prefs.get_v("rating"))
+	var note := L.t("board_min", MIN_RATING) if mine < MIN_RATING else L.t("board_listed")
+	if not Net.online:
+		note = L.t("board_offline")
+	text(note, TS.CAPTION, Color(0.9, 0.66, 0.45), "serif", Rect2(0, 1032, D.x, 40))
 	if Net.online:
 		_fetch()
 	# column titles
@@ -32,19 +31,19 @@ func build() -> void:
 	for c in cols:
 		text(c[0], TS.CAPTION, Kit.MUTED, "title_bold", Rect2(LIST.position.x + mx(c[1], c[2], ROW.x), 222, c[2], 36))
 	var content := scroll_area(LIST)
-	var rows: Array = _live if live else SAMPLE
+	var rows: Array = _live if live else []
 	var my_rank := 0
 	for i in rows.size():
 		_row(content, i + 1, rows[i], Vector2(0, i * (ROW.y + 14)), false)
 		if live and rows[i].size() > 4 and rows[i][4]:
 			my_rank = i + 1
-	if live and rows.is_empty():
+	if rows.is_empty():
 		text(L.t("board_empty"), TS.LABEL, Kit.MUTED, "serif", Rect2(LIST.position.x, LIST.position.y + 120, LIST.size.x, 80))
 	# you, pinned under the list
 	var pin := Control.new()
 	pin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	put(pin, Vector2(LIST.position.x, LIST.end.y + 40), ROW)
-	_row(pin, my_rank if live else 214, [Prefs.display_name(), String(Prefs.get_v("portrait")), int(Prefs.get_v("rating")), 0],
+	_row(pin, my_rank, [Prefs.display_name(), String(Prefs.get_v("portrait")), mine, 0],
 			Vector2.ZERO, true)
 
 
@@ -87,10 +86,11 @@ func _fetch() -> void:
 	if has_meta("fetching"):
 		return
 	set_meta("fetching", true)
-	var recs := await Api.leaderboard(100)
+	var recs := await Api.leaderboard(TOP + 5)
 	var rows := []
 	for r in recs:
-		rows.append([String(r["name"]), String(r["portrait"]), int(r["rating"]), -1, r["me"]])
+		if int(r["rating"]) >= MIN_RATING and rows.size() < TOP:
+			rows.append([String(r["name"]), String(r["portrait"]), int(r["rating"]), int(r.get("wins", -1)), r["me"]])
 	var changed := not _loaded or rows != _live
 	_live = rows
 	_loaded = true

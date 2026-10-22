@@ -52,6 +52,9 @@ func _ready() -> void:
 	if args.has("--apitest"):
 		add_child(load("res://scripts/dev_tests.gd").new())
 		return
+	if args.has("--aiarena"):  # test: the computer levels play each other (dev_ai_arena.gd)
+		add_child(load("res://scripts/dev_ai_arena.gd").new())
+		return
 	if args.has("--resume"):  # test: straight back into the saved game
 		var d := SavedGame.read()
 		Prefs.game = {"mode": d.get("mode", "ai"), "players": (d.get("opps", []) as Array).size() + 1, "resume": true}
@@ -74,7 +77,20 @@ func _ready() -> void:
 				first_arg = int(parts[1])
 	Prefs.start_screen = "splash"
 	open(first, first_arg)
+	_email_test(args)
 	_shot_if_asked(args)
+
+
+## --emailtest=link|recover|code: open the recovery email dialogs (checks).
+func _email_test(args: PackedStringArray) -> void:
+	for a in args:
+		if a.begins_with("--emailtest="):
+			await get_tree().create_timer(0.6).timeout
+			var p := a.get_slice("=", 1)
+			if p == "code":
+				EmailFlow._code_step(current, "link", "sara.k@gmail.com", func(_d: Dictionary): pass)
+			else:
+				EmailFlow.open(current, p, func(_d: Dictionary): pass)
 
 
 ## --shot=<file> [--shot-at=<s>]: save what is on screen, then quit (checks).

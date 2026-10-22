@@ -205,3 +205,22 @@ func _sync_server() -> void:
 		Prefs.set_v("rating", int(r["rating"]))
 		if is_inside_tree() and _dialog == null:
 			_rebuild()
+	_remind_email()
+
+
+## Without a recovery email, every 50 rating points gained bring a reminder
+## that the rating would be lost with the phone.
+func _remind_email() -> void:
+	var st := await Api.email_status()
+	if not is_inside_tree() or _dialog != null or not bool(st.get("available", false)):
+		return
+	if String(Prefs.get_v("email")) != "":
+		return
+	var rating := int(Prefs.get_v("rating"))
+	if rating < int(Prefs.get_v("email_nag_at")) + 50:
+		return
+	Prefs.set_v("email_nag_at", rating)
+	message(L.t("email_nag_t"), L.t("email_nag", rating), [
+		[L.t("later"), "onyx", func(): pass],
+		[L.t("email_add"), "emerald", func(): EmailFlow.open(self, "link", func(_d: Dictionary): note(L.t("email_saved")))],
+	])

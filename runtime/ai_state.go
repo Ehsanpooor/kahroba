@@ -27,7 +27,7 @@ const (
 	nColors = 5
 	nGems   = 6
 
-	maxPlayers = 4
+	maxPlayers = MaxRoomPlayers
 	boardWidth = 4  // face-up cards per tier
 	maxDeck    = 40 // tier 1 is the largest deck
 	maxArts    = 5  // players + 1, capped at 4 players

@@ -22,6 +22,8 @@ const DEFAULTS := {
 	"rating": 1000,  # a new player's rating (the server's DefaultRating)
 	"server": "",  # the game server's address ("" = Net.DEFAULT_SERVER)
 	"device_id": "",  # this device's sign-in on the server, made on first use
+	"email": "",  # the account's recovery email, once checked
+	"email_nag_at": 1000,  # the rating of the last "add an email" reminder (one every 50 points)
 }
 
 var data := {}

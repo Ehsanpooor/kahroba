@@ -17,6 +17,7 @@ var origin := Vector2.ZERO
 var arg: Variant = null  # what the opener passed
 var _dialog: Control
 var _note: Control
+var _pin_key := Callable()  ## a hardware key, while a dialog with a keypad is open
 
 
 func _ready() -> void:
@@ -189,6 +190,7 @@ func dialog(sz: Vector2, title: String, closable := true) -> Control:
 
 
 func close_dialog() -> void:
+	_pin_key = Callable()
 	if _dialog and is_instance_valid(_dialog):
 		var d := _dialog
 		_dialog = null
@@ -253,6 +255,118 @@ func dialog_text(box: Control, t: String, px_: float, color: Color, kind: String
 ## The content width of a dialog, in design px.
 func dialog_w(box: Control) -> float:
 	return (box.get_meta("content") as Rect2).size.x / u
+
+
+## A six-digit code typed on keys drawn in the dialog (the phone's keyboard
+## would cover it): six places on an ivory plate at `slots` (design px in the
+## content rect), the keypad 1-9, Paste, 0, Delete in the column at `key_x`
+## (`key_w` wide). Digits always read left to right; an empty place shows a
+## faint dot. A hardware keyboard types too. `on_change(code, note)` runs
+## after every change (note: a line to show, or ""), `on_enter(code)` on
+## Enter. Returns the state: read and set "code", then call ["show"].
+func pin_pad(box: Control, slots_at: Rect2, key_x: float, key_w: float, on_change: Callable,
+		on_enter: Callable) -> Dictionary:
+	var st := {"code": ""}
+	var field := Kit.tex("input_field")
+	if field:
+		in_dialog(box, Kit.strip(field, slots_at.size * u, 0.08), slots_at.position)
+	var slots: Array[Label] = []
+	var cell := 78.0
+	var inner := cell * 6 + 40.0
+	for k in 6:
+		var x := slots_at.position.x + (slots_at.size.x - inner) * 0.5 + k * cell + (40.0 if k >= 3 else 0.0)
+		slots.append(dialog_text(box, "", TS.NUM_L, Kit.INK_DARK, "num", Rect2(x, slots_at.position.y, cell, slots_at.size.y)))
+	var show := func():
+		var c: String = st["code"]
+		for k in 6:
+			var has: bool = k < c.length()
+			slots[k].text = c[k] if has else "·"
+			slots[k].modulate.a = 1.0 if has else 0.35
+	st["show"] = show
+	var fa_digits := "۰۱۲۳۴۵۶۷۸۹"
+	var add_text := func(t: String):
+		for ch in t:
+			if String(st["code"]).length() >= 6:
+				break
+			if ch >= "0" and ch <= "9":
+				st["code"] += ch
+			elif fa_digits.contains(ch):
+				st["code"] += str(fa_digits.find(ch))
+		show.call()
+		on_change.call(st["code"], "")
+	var press := func(key: String):
+		match key:
+			"del":
+				var c: String = st["code"]
+				st["code"] = c.left(maxi(c.length() - 1, 0))
+				show.call()
+				on_change.call(st["code"], "")
+			"paste":
+				st["code"] = ""
+				add_text.call(DisplayServer.clipboard_get())
+				if String(st["code"]).is_empty():
+					on_change.call("", L.t("paste_none"))
+			"enter":
+				on_enter.call(st["code"])
+			_:
+				add_text.call(key)
+	var key := Vector2(164, 124)
+	var gap := Vector2(22, 14)
+	var keys := ["1", "2", "3", "4", "5", "6", "7", "8", "9", "paste", "0", "del"]
+	var kw := key.x * 3 + gap.x * 2
+	var kx0 := key_x + (key_w - kw) * 0.5
+	for k in keys.size():
+		var kname: String = keys[k]
+		var pos := Vector2(kx0 + (k % 3) * (key.x + gap.x), 10 + (k / 3) * (key.y + gap.y))
+		var b: Button
+		if kname == "del":
+			b = Kit._art_button(Kit.tex("btn_arrow_left"), key.y * u)
+			in_dialog(box, b, pos + Vector2((key.x - key.y) * 0.5, 0))
+		else:
+			b = Button.new()
+			b.focus_mode = Control.FOCUS_NONE
+			Kit._empty_styles(b)
+			b.size = key * u
+			var art := Kit.tex("btn_square_onyx")
+			if art:
+				var tr := TextureRect.new()
+				tr.texture = art
+				tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+				tr.stretch_mode = TextureRect.STRETCH_SCALE
+				tr.size = b.size
+				tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+				b.add_child(tr)
+			var paste := kname == "paste"
+			var lab := Kit.label(L.t("paste") if paste else kname, (TS.BODY if paste else TS.NUM_L) * u, Kit.GOLD,
+					"sans_bold" if paste else "num", b.size.x)
+			lab.size = b.size
+			lab.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			lab.position.y -= float(lab.get_meta("shift", 0.0))
+			b.add_child(lab)
+			Kit.feedback(b)
+			in_dialog(box, b, pos)
+		b.pressed.connect(press.bind(kname))
+	show.call()
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--pin="):  # test: type a code on the keypad
+			for ch in a.get_slice("=", 1):
+				press.call(ch)
+	_pin_key = func(e: InputEventKey):
+		if e.keycode == KEY_BACKSPACE:
+			press.call("del")
+		elif e.keycode == KEY_ENTER or e.keycode == KEY_KP_ENTER:
+			press.call("enter")
+		elif e.keycode == KEY_V and e.ctrl_pressed:
+			press.call("paste")
+		elif e.unicode > 0:
+			add_text.call(char(e.unicode))
+	return st
+
+
+func _unhandled_key_input(e: InputEvent) -> void:
+	if _pin_key.is_valid() and e is InputEventKey and (e as InputEventKey).pressed and _dialog != null:
+		_pin_key.call(e)
+		get_viewport().set_input_as_handled()
 
 
 # ------------------------------------------------------------------ scrolling lists

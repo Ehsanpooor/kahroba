@@ -24,6 +24,9 @@ const (
 	AIEasy   AIDifficulty = "easy"
 	AINormal AIDifficulty = "normal"
 	AIHard   AIDifficulty = "hard"
+	// AIVeryHard searches much longer; the strongest regulars of the public
+	// tables play at this level.
+	AIVeryHard AIDifficulty = "very_hard"
 )
 
 func normalizeDifficulty(d string) AIDifficulty {
@@ -32,6 +35,8 @@ func normalizeDifficulty(d string) AIDifficulty {
 		return AIEasy
 	case AIHard:
 		return AIHard
+	case AIVeryHard, "veryhard", "very-hard":
+		return AIVeryHard
 	default:
 		return AINormal
 	}
@@ -75,6 +80,26 @@ func profileFor(d AIDifficulty) aiProfile {
 			topK:     3,
 			thinkMin: 500 * time.Millisecond,
 			thinkMax: 1200 * time.Millisecond,
+		}
+
+	case AIVeryHard:
+		// Hard's eyes with four times the thought.
+		return aiProfile{
+			weights: defaultWeights,
+			cfg: searchConfig{
+				maxSimulations: 1600000,
+				timeBudget:     AIVeryHardThinkMs * time.Millisecond,
+				rolloutDepth:   12,
+				explore:        0.85,
+				progressive:    1.5,
+				bootstrap:      32,
+				rolloutSample:  5,
+				rolloutRandom:  0.06,
+			},
+			blunder:  0,
+			topK:     1,
+			thinkMin: 900 * time.Millisecond,
+			thinkMax: 2200 * time.Millisecond,
 		}
 
 	case AIHard:
@@ -126,8 +151,9 @@ func profileFor(d AIDifficulty) aiProfile {
 // Search budgets in milliseconds. Env-overridable so a busy server can trade
 // bot strength for CPU without a rebuild.
 var (
-	AIHardThinkMs   = time.Duration(getEnvInt("AI_HARD_THINK_MS", 320))
-	AINormalThinkMs = time.Duration(getEnvInt("AI_NORMAL_THINK_MS", 45))
+	AIHardThinkMs     = time.Duration(getEnvInt("AI_HARD_THINK_MS", 320))
+	AIVeryHardThinkMs = time.Duration(getEnvInt("AI_VERYHARD_THINK_MS", 1200))
+	AINormalThinkMs   = time.Duration(getEnvInt("AI_NORMAL_THINK_MS", 45))
 )
 
 // ---------- decision entry point ----------

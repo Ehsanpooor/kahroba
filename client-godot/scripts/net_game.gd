@@ -19,6 +19,7 @@ var n := 0
 var started := false  ## the game is being played (after the intro)
 var awaiting := false  ## your move was sent; waiting for the server
 var room_code := ""
+var search_started := 0.0  ## unix time the player started looking for a table (public)
 var _queue: Array = []  ## [op, data] waiting to be played on the board
 var _running := false
 var _slots := {1: ["", "", "", ""], 2: ["", "", "", ""], 3: ["", "", "", ""]}  ## board ids per tier, as placed
@@ -32,6 +33,7 @@ var _resync := false  ## after a reconnect the next state replaces the table
 func attach(board: Node) -> void:
 	b = board
 	room_code = String(Prefs.game.get("code", ""))
+	search_started = float(Prefs.game.get("search_started", 0))
 	Api.match_message.connect(_on_message)
 	Api.socket_closed.connect(_on_socket_closed)
 
@@ -166,7 +168,10 @@ func _player(pv: Dictionary, mine: bool) -> Dictionary:
 		portrait = String(Prefs.get_v("portrait"))
 	elif not portrait.begins_with("A-"):
 		portrait = "A-01"
-	var d: Dictionary = b._new_player(name, portrait, 1000)
+	var rating := int(pv.get("rating", 0))
+	if rating <= 0:
+		rating = int(Prefs.get_v("rating")) if mine else 1000
+	var d: Dictionary = b._new_player(name, portrait, rating)
 	if bot != "":
 		d["bot"] = bot
 	d["user_id"] = String(pv.get("userId", ""))
@@ -273,7 +278,7 @@ func lobby_seats() -> Array:
 					portrait = String(Prefs.get_v("portrait"))
 				elif not portrait.begins_with("A-"):
 					portrait = "A-01"
-				out.append({"name": name, "portrait": portrait, "rating": 1000, "ready": r.get("ready", false),
+				out.append({"name": name, "portrait": portrait, "rating": int(r.get("rating", 1000)), "ready": r.get("ready", false),
 						"open": r.get("open", false), "me": me_})
 		return out
 	var players: Array = state.get("players", [])
@@ -287,7 +292,7 @@ func lobby_seats() -> Array:
 			for r in rs:
 				if int(r.get("seat", -1)) == seat:
 					ready = r.get("ready", false)
-			out.append({"name": d["name"], "portrait": d["portrait"], "rating": 1000, "ready": ready,
+			out.append({"name": d["name"], "portrait": d["portrait"], "rating": int(d.get("rating", 1000)), "ready": ready,
 					"open": pv.get("seatOpen", false), "me": seat == my_seat})
 		else:
 			out.append({"name": "", "portrait": "", "open": true, "ready": false, "me": false})
@@ -309,6 +314,11 @@ func ready_left() -> float:
 	var dl := int(src.get("deadlineMs", src.get("readyDeadlineMs", 0)))
 	var now := int(src.get("serverNowMs", 0))
 	return maxf((dl - now) / 1000.0, 0.0) if dl > 0 else 0.0
+
+
+## The ready countdown's full length, as the server set it.
+func ready_total() -> float:
+	return float(_ready_state.get("readySeconds", 45))
 
 
 func send_ready() -> void:

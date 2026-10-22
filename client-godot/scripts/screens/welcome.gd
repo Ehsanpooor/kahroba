@@ -1,7 +1,8 @@
 extends Screen
-## First start, three steps on painted dialogs, then the menu (which offers
-## the tutorial): 0. the language, 1. your name, 2. your portrait (or your
-## own photo).
+## First start, steps on painted dialogs, then the menu (which offers the
+## tutorial): 0. the language, 1. your name (or: recover an old account by
+## email), 2. your portrait (or your own photo), 3. a recovery email, offered
+## once and skippable (when the server can send email).
 
 var step := 0
 var _name := ""
@@ -11,7 +12,7 @@ var _portrait := ""
 func build() -> void:
 	if arg is int and not has_meta("arg_used"):
 		set_meta("arg_used", true)
-		step = clampi(int(arg), 0, 2)
+		step = clampi(int(arg), 0, 3)
 	if _name == "":
 		_name = String(Prefs.get_v("name"))
 	if _portrait == "":
@@ -21,8 +22,10 @@ func build() -> void:
 		_build_lang()
 	elif step == 1:
 		_build_name()
-	else:
+	elif step == 2:
 		_build_portrait()
+	else:
+		_build_email()
 
 
 func on_back() -> bool:
@@ -143,6 +146,14 @@ func _build_name() -> void:
 			_rebuild()
 	next.pressed.connect(go_next)
 	le.text_submitted.connect(func(_t: String): go_next.call())
+	# played before (another phone)? the account comes back by email
+	var rec := Button.new()
+	rec.focus_mode = Control.FOCUS_NONE
+	Kit._empty_styles(rec)
+	put(rec, Vector2((D.x - 1100) * 0.5, 998), Vector2(1100, 74))
+	text(L.t("have_account"), TS.BODY, Kit.GOLD, "serif_bold", Rect2(0, 0, 1100, 74), HORIZONTAL_ALIGNMENT_CENTER, rec)
+	Kit.feedback(rec)
+	rec.pressed.connect(_recover)
 
 
 func _build_portrait() -> void:
@@ -176,7 +187,9 @@ func _build_portrait() -> void:
 						_rebuild.call_deferred())))
 	var start := Kit.button(L.t("start"), Vector2(520, 136) * u, "emerald")
 	put_at(start, Vector2((D.x - 520) * 0.5, box.end.y - 90))
-	start.pressed.connect(_finish)
+	start.pressed.connect(func():
+		Kit.set_enabled(start, false)
+		_after_portrait())
 	# the portraits that are open at the start
 	var gx := mx(700, 1250, box.size.x)
 	var grid := scroll_area(Rect2(box.position.x + gx, box.position.y + r.position.y / u + 20, 1250, 600))
@@ -199,8 +212,63 @@ func _build_portrait() -> void:
 		add_in(grid, b, Vector2(col * cell + 12, (i / per) * cell + 12))
 
 
-func _finish() -> void:
+## After the portrait: offer a recovery email when the server can send one.
+func _after_portrait() -> void:
+	_save()
+	if not Net.online or String(Prefs.get_v("email")) != "":
+		_finish()
+		return
+	Api.sync_profile()  # the account carries the name before an email is added
+	var st := await Api.email_status()
+	if not is_inside_tree():
+		return
+	if not bool(st.get("available", false)):
+		_finish()
+		return
+	step = 3
+	_rebuild()
+
+
+## 3. The recovery email, offered once: add it now, or later from Settings.
+func _build_email() -> void:
+	_logo(Rect2((D.x - 700) * 0.5, 24, 700, 250))
+	var box := Rect2((D.x - 1560) * 0.5, 330, 1560, 620)
+	var dlg := Kit.dialog(box.size * u, L.t("email_t_link"), false)
+	put_at(dlg, box.position)
+	var r: Rect2 = dlg.get_meta("content")
+	var cw := r.size.x / u
+	var p := Kit.para(L.t("email_offer"), TS.LABEL * u, (cw - 120) * u, Kit.IVORY)
+	p.position = r.position + Vector2(60, 20) * u
+	dlg.add_child(p)
+	var bw := 480.0
+	var gap := 60.0
+	var x0 := (cw - bw * 2 - gap) * 0.5
+	var later := Kit.button(L.t("later"), Vector2(bw, 136) * u, "onyx")
+	var add := Kit.button(L.t("email_add"), Vector2(bw, 136) * u, "emerald")
+	later.position = r.position + Vector2(x0 + (bw + gap if L.fa() else 0.0), 300) * u
+	add.position = r.position + Vector2(x0 + (0.0 if L.fa() else bw + gap), 300) * u
+	dlg.add_child(later)
+	dlg.add_child(add)
+	later.pressed.connect(_finish)
+	add.pressed.connect(func(): EmailFlow.open(self, "link", func(_d: Dictionary): _finish()))
+
+
+## Played before: the old account comes to this phone by its email.
+func _recover() -> void:
+	if not Net.online:
+		message(L.t("no_server_t"), L.t("no_server_body"), [[L.t("ok"), "onyx", func(): pass]])
+		return
+	EmailFlow.open(self, "recover", func(_d: Dictionary):
+		Prefs.set_v("onboarded", true)
+		go.emit("menu", null))
+
+
+func _save() -> void:
 	Prefs.set_v("name", _name.strip_edges())
 	Prefs.set_v("portrait", _portrait if _portrait != "" else "M-04")
+
+
+func _finish() -> void:
+	_save()
 	Prefs.set_v("onboarded", true)
 	go.emit("menu", null)

@@ -594,10 +594,18 @@ func TestStartPublicSearch_ReturnsRefillMatch(t *testing.T) {
 		}
 	}
 
+	if resp.MatchID != "refill-1" {
+		t.Errorf("matchId = %q, want the open table refill-1", resp.MatchID)
+	}
+
+	// With no open table a new one is opened for the searcher.
 	nk.matches = nil
 	out, _ = rpcStartPublicSearch(ctx, &mockLogger{t}, nil, nk, `{"playerCount":3}`)
 	if strings.Contains(out, "refillMatchId") {
 		t.Errorf("no open seat, yet the response offers one: %s", out)
+	}
+	if !strings.Contains(out, `"matchId":"table-new"`) {
+		t.Errorf("no new table offered: %s", out)
 	}
 }
 
@@ -647,6 +655,10 @@ func (n *readyNK) NotificationSend(_ context.Context, userID, _ string, _ map[st
 	n.notified = append(n.notified, userID)
 	n.codes = append(n.codes, code)
 	return nil
+}
+
+func (n *readyNK) MatchCreate(_ context.Context, _ string, _ map[string]interface{}) (string, error) {
+	return "table-new", nil
 }
 
 func (n *readyNK) MatchList(_ context.Context, _ int, _ bool, _ string, _, _ *int, query string) ([]*api.Match, error) {

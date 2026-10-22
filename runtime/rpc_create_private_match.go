@@ -45,8 +45,8 @@ func rpcCreatePrivateMatch(ctx context.Context, logger runtime.Logger, db *sql.D
 		return "", runtime.NewError("invalid payload", 3)
 	}
 
-	if req.PlayerCount < 2 || req.PlayerCount > 4 {
-		return "", runtime.NewError("playerCount must be 2, 3, or 4", 3)
+	if req.PlayerCount < 2 || req.PlayerCount > MaxRoomPlayers {
+		return "", runtime.NewError("playerCount must be 2 to 6", 3)
 	}
 	withCode := len(req.InvitedFriendIds) == 0
 	if !withCode && len(req.InvitedFriendIds) != req.PlayerCount-1 {

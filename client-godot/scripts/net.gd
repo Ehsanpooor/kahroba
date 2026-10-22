@@ -9,7 +9,7 @@ extends Node
 
 signal changed(online: bool)
 
-const DEFAULT_SERVER := "https://splendor.mspink.ir"
+const DEFAULT_SERVER := "https://splendor.aizood.ir"
 const TIMEOUT := 4.0
 const EVERY := 15.0  # seconds between checks while all is well
 const EVERY_IN_GAME := 4.0  # during an online game, and while the line is down

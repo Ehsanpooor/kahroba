@@ -2,8 +2,11 @@ extends Node
 ## Autoload "Sfx": the game's sounds and its music. Sfx.play("token_pick")
 ## plays a sound by its meaning (a few takes of it at random, a little pitch
 ## variation so repeats do not sound mechanical, several at once from a small
-## pool). Sfx.music(true, "game") fades the loop in (or crossfades to another
-## track), Sfx.music(false) fades it out. Volumes follow Settings live
+## pool). Sfx.music(true, "game") fades the music in (or crossfades from the
+## menu's), Sfx.music(false) fades it out. "menu" and "game" are playlists: a
+## piece is picked at random, and near its end the next one (never the same
+## piece twice in a row) crossfades in; a playlist of one simply loops.
+## Volumes follow Settings live
 ## (Prefs "sound" and "music", 0..1), on the buses "SFX" and "Music".
 ## A missing file is skipped quietly.
 
@@ -29,13 +32,25 @@ const SOUNDS := {
 	"lose": [["lose"], -2.0, 0.0],
 	"game_start": [["game_start"], -2.0, 0.0],
 }
-## track: [file, volume dB]
+## playlist: [[file (without .ogg), volume dB], ...]. The new pieces are
+## levelled to the same loudness as game_suonatore_di_liuto (-21.6 LUFS), so
+## in-game they all sit at -5 dB; the menu plays louder, as it always did.
 const TRACKS := {
-	"menu": ["menu_bards_tale", -4.0],
-	"game": ["game_suonatore_di_liuto", -5.0],
+	"menu": [
+		["menu_bards_tale", -4.0],
+		["music_midnight_tale", 1.0],
+	],
+	"game": [
+		["game_suonatore_di_liuto", -5.0],
+		["music_village_consort", -5.0],
+		["music_midnight_tale", -5.0],
+		["music_minstrel_dance", -5.0],
+	],
 }
 const VOICES := 12
 const FADE := 1.4
+const SEGUE := 4.0  # seconds of crossfade from one piece of a playlist to the next
+const MIN_PIECE := 100.0  # a short loop goes round again until it has played this long
 const SILENT := -60.0
 
 var _streams := {}  # name -> Array of AudioStream (loaded on first use)
@@ -44,7 +59,9 @@ var _next := 0
 var _last := {}  # name -> msec it last started (the same sound is not stacked in one instant)
 var _decks: Array[AudioStreamPlayer] = []  # two music players, for crossfades
 var _cur := 0
-var _track := ""
+var _track := ""  # the playlist playing ("menu" / "game")
+var _piece := ""  # the file playing from it
+var _piece_at := 0  # msec it started
 var _music_on := false
 var _fades := {}  # player -> its fade tween
 
@@ -89,8 +106,8 @@ func play(sound: String, pitch_var := -1.0, db := 0.0) -> void:
 	p.play()
 
 
-## Music on (track "menu" or "game"; "" keeps the current one) or off, with a
-## gentle fade; a different track crossfades.
+## Music on (playlist "menu" or "game"; "" keeps the current one) or off,
+## with a gentle fade; a different playlist crossfades to a piece of its own.
 func music(on: bool, track := "") -> void:
 	if track == "":
 		track = _track if _track != "" else "menu"
@@ -98,29 +115,64 @@ func music(on: bool, track := "") -> void:
 		_music_on = false
 		_fade(_decks[_cur], SILENT, FADE, true)
 		return
+	if not TRACKS.has(track):
+		return
 	var deck := _decks[_cur]
-	if _music_on and track == _track and deck.playing:
+	if track == _track and deck.playing:
+		if not _music_on:  # turned back on while fading out: the same piece comes back
+			_music_on = true
+			for d in TRACKS[track]:
+				if String(d[0]) == _piece:
+					_fade(deck, float(d[1]), FADE, false)
 		return
-	var def: Array = TRACKS.get(track, [])
-	if def.is_empty():
-		return
-	var path: String = MUSIC_DIR + String(def[0]) + ".ogg"
-	if not ResourceLoader.exists(path):
-		return
-	if track != _track or not deck.playing:
-		if deck.playing:
-			_fade(deck, SILENT, FADE, true)  # the old track goes out under the new one
-			_cur = 1 - _cur
-			deck = _decks[_cur]
-		var s := load(path) as AudioStream
-		if s is AudioStreamOggVorbis:
-			(s as AudioStreamOggVorbis).loop = true
-		deck.stream = s
-		deck.volume_db = SILENT
-		deck.play()
 	_track = track
 	_music_on = true
-	_fade(deck, float(def[1]), FADE, false)
+	_segue(FADE)
+
+
+## Crossfade to a piece of the current playlist other than the one playing
+## (the same one again only when the list has nothing else).
+func _segue(dur: float) -> void:
+	var picks: Array = []
+	for d in TRACKS[_track]:
+		if ResourceLoader.exists(MUSIC_DIR + String(d[0]) + ".ogg"):
+			picks.append(d)
+	if picks.is_empty():
+		return
+	var deck := _decks[_cur]
+	if picks.size() > 1:
+		picks = picks.filter(func(d): return String(d[0]) != _piece)
+	var def: Array = picks.pick_random()
+	if String(def[0]) == _piece and deck.playing:
+		_fade(deck, float(def[1]), dur, false)  # the one piece there is goes on
+		return
+	if deck.playing:
+		_fade(deck, SILENT, dur, true)  # the old piece goes out under the new one
+		_cur = 1 - _cur
+		deck = _decks[_cur]
+	var s := load(MUSIC_DIR + String(def[0]) + ".ogg") as AudioStream
+	if s is AudioStreamOggVorbis:
+		(s as AudioStreamOggVorbis).loop = true  # it loops if nothing else follows
+	deck.stream = s
+	deck.volume_db = SILENT
+	deck.play()
+	_piece = String(def[0])
+	_piece_at = Time.get_ticks_msec()
+	_fade(deck, float(def[1]), dur, false)
+
+
+## Near the end of a piece the next one of its playlist takes over (a short
+## loop first goes round again until it has played MIN_PIECE seconds).
+func _process(_delta: float) -> void:
+	if not _music_on or _piece == "" or TRACKS.get(_track, []).size() < 2:
+		return
+	var deck := _decks[_cur]
+	if not deck.playing or deck.stream == null:
+		return
+	var left := deck.stream.get_length() - deck.get_playback_position()
+	var played := (Time.get_ticks_msec() - _piece_at) / 1000.0
+	if left < SEGUE + 0.25 and played + left >= MIN_PIECE:
+		_segue(SEGUE)
 
 
 func _takes(sound: String, files: Array) -> Array:

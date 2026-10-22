@@ -25,7 +25,7 @@ func (m *SplendorMatch) MatchInit(ctx context.Context, logger runtime.Logger, db
 	// Both creation paths must agree on the table size: the matchmaker seeds
 	// userIds, while a private lobby only knows the count up front.
 	playerCount := paramInt(params, "playerCount", len(userIDs))
-	if playerCount < 2 || playerCount > 4 {
+	if playerCount < 2 || playerCount > MaxRoomPlayers {
 		logger.Warn("MatchInit: playerCount %d out of range, defaulting to 2", playerCount)
 		playerCount = 2
 	}
@@ -39,6 +39,7 @@ func (m *SplendorMatch) MatchInit(ctx context.Context, logger runtime.Logger, db
 	state := NewMatchStateSeeded(userIDs, names, rated, playerCount, seed)
 	state.HostUserID = paramString(params, "hostUserId", "")
 	state.ReadyCheck = true
+	state.Public = paramBool(params, "public", false)
 
 	// Fill the remaining seats with bots. An AI match is an ordinary
 	// authoritative match: the bot occupies a real seat and plays through the
@@ -71,6 +72,9 @@ func (m *SplendorMatch) MatchInit(ctx context.Context, logger runtime.Logger, db
 
 	now := nowMs()
 	state.LobbyDeadlineMs = now + int64(LobbyWaitSeconds)*1000
+	if state.Public {
+		state.LobbyDeadlineMs = now + 12*60*1000 // a public table always fills well before this
+	}
 
 	// A matchmaker match arrives with every seat filled, so its ready check
 	// starts at once; the window covers connecting as well as answering.
@@ -190,6 +194,13 @@ func handleJoin(ms *MatchState, tc turnCtx, presences []runtime.Presence) *Match
 			p := newPlayerState(userID, pres.GetUsername())
 			p.Disconnected = false
 			ms.Players = append(ms.Players, p)
+			if ms.Public {
+				if ms.humanSeatCount() == 1 && ms.botArrivals == nil {
+					planArrivals(ms, tc.now)
+				} else {
+					humanArrived(ms)
+				}
+			}
 			if matchID != "" && tc.nk != nil {
 				setActiveMatch(tc.ctx, tc.logger, tc.nk, userID, matchID)
 			}
@@ -272,6 +283,11 @@ func handleLeave(ms *MatchState, tc turnCtx, presences []runtime.Presence) *Matc
 			ms = leaveReadyCheck(ms, userID, tc)
 			continue
 		}
+		// Leaving a public table that is still filling gives the seat back.
+		if ms.Phase == PhaseWaiting && ms.Public && seat >= 0 {
+			ms = leaveWaiting(ms, userID, false, tc)
+			continue
+		}
 		ms.dropPresence(userID)
 		if seat >= 0 {
 			ms.Players[seat].Disconnected = true
@@ -294,12 +310,22 @@ func runLoop(ms *MatchState, tc turnCtx, messages []runtime.MatchData) *MatchSta
 		return ms
 	}
 	if ms.Phase == PhaseWaiting {
-		// A friend's room waiting for its players still answers SYNC_REQUEST,
-		// so everyone already seated can see who has arrived.
+		// A table waiting for its players still answers SYNC_REQUEST (so
+		// everyone seated can see who has arrived) and CONCEDE (leaving it).
 		for _, msg := range messages {
-			if msg.GetOpCode() == OpSyncRequest {
+			switch msg.GetOpCode() {
+			case OpSyncRequest:
 				sendState(ms, tc.dispatcher, msg.GetUserId(), tc.now)
+			case OpConcede:
+				ms = leaveWaiting(ms, msg.GetUserId(), true, tc)
+				if ms.Phase == PhaseEnded {
+					return ms
+				}
 			}
+		}
+		ms = fillPublicTable(ms, tc)
+		if ms.Phase != PhaseWaiting {
+			return ms
 		}
 		return checkLobbyTimeout(ms, tc)
 	}

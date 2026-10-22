@@ -97,6 +97,11 @@ func CalculateActualCost(hireCost Cost, affinityBonus Cost) Cost {
 	return result
 }
 
+// MaxRoomPlayers is the largest table: a friends' room seats up to 6 (the
+// Iranian edition's board); online tables and games with the computer stay
+// at 2 to 4.
+const MaxRoomPlayers = 6
+
 // CanAfford reports whether the player's coins, with Aether covering any
 // shortfall one-for-one, meet the discounted cost.
 func CanAfford(playerCoins Cost, actualCost Cost) bool {

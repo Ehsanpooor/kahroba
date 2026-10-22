@@ -111,6 +111,49 @@ func sync_profile() -> Dictionary:
 	return await rpc_call("bootstrap_profile", {"displayName": Prefs.display_name(), "avatarId": portrait})
 
 
+# ------------------------------------------------------------------ recovery email
+
+## This account's recovery email ("" for none) and whether the server can send
+## email: {email, available}. {} when the server was not reached.
+func email_status() -> Dictionary:
+	var r := await rpc_call("email_status", {})
+	if not r["ok"]:
+		return {}
+	var e := String(r["data"].get("email", ""))
+	if e != "":
+		Prefs.set_v("email", e)
+	return r["data"]
+
+
+## Email a six-digit code: purpose "link" (add the email to this account) or
+## "recover" (bring that email's account to this device).
+func email_send_code(email: String, purpose: String) -> Dictionary:
+	return await rpc_call("email_send_code", {"email": email, "purpose": purpose, "lang": L.code})
+
+
+## Check the code. "link": the email is saved. "recover": this device signs in
+## as that account from now on, and takes its name, portrait and rating.
+func email_verify(email: String, code: String, purpose: String) -> Dictionary:
+	var r := await rpc_call("email_verify", {"email": email, "code": code, "purpose": purpose})
+	if not r["ok"]:
+		return r
+	var d: Dictionary = r["data"]
+	Prefs.set_v("email", String(d.get("email", email)))
+	if purpose == "recover":
+		close_socket()
+		token = ""
+		user_id = ""
+		_token_exp = 0
+		await ensure_session()
+		if String(d.get("displayName", "")) != "":
+			Prefs.set_v("name", String(d["displayName"]))
+		var av := String(d.get("avatarId", ""))
+		Prefs.set_v("portrait", av if av.begins_with("A-") else "A-01")  # an own photo stays on the old phone
+		Prefs.set_v("rating", int(d.get("rating", 1000)))
+		Prefs.set_v("email_nag_at", int(d.get("rating", 1000)))
+	return r
+
+
 # ------------------------------------------------------------------ RPCs
 
 func rpc_call(id: String, payload: Dictionary = {}) -> Dictionary:
@@ -141,7 +184,21 @@ func leaderboard(limit := 50) -> Array:
 		var meta: Variant = JSON.parse_string(String(rec.get("metadata", "{}")))
 		out.append({"name": String(rec.get("username", "")), "rating": int(rec.get("score", 0)),
 				"rank": int(rec.get("rank", 0)), "portrait": String((meta as Dictionary).get("avatarId", "A-01")) if meta is Dictionary else "A-01",
-				"me": String(rec.get("owner_id", "")) == user_id})
+				"me": String(rec.get("owner_id", "")) == user_id, "owner": String(rec.get("owner_id", "")), "wins": -1})
+	# the wins column: every listed player's public rating profile, in one read
+	if not out.is_empty():
+		var ids := []
+		for o in out:
+			ids.append({"collection": "rating", "key": "profile", "user_id": o["owner"]})
+		var pr := await _http("/v2/storage", HTTPClient.METHOD_POST, JSON.stringify({"object_ids": ids}), "Bearer " + token)
+		if pr["ok"]:
+			var wins := {}
+			for obj in pr["data"].get("objects", []):
+				var v: Variant = JSON.parse_string(String(obj.get("value", "{}")))
+				if v is Dictionary:
+					wins[String(obj.get("user_id", ""))] = int((v as Dictionary).get("wins", 0))
+			for o in out:
+				o["wins"] = int(wins.get(o["owner"], -1))
 	return out
 
 

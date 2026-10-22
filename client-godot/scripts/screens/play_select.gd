@@ -8,7 +8,7 @@ const MODES := [
 	{"key": "ai", "style": "emerald", "gem": "green", "icon": "knight"},
 	{"key": "friends", "style": "ruby", "gem": "red", "icon": "friends"},
 ]
-const DIFF := ["easy", "normal", "hard"]
+const DIFF := ["easy", "normal", "hard", "very_hard"]
 const WIN := [15, 18, 21, 25, 30]
 
 
@@ -98,13 +98,13 @@ func _open(key: String) -> void:
 	var chip := Vector2(250, 96)
 	var row := func(title: String, options: Array, sel: int, on_pick: Callable) -> void:
 		dialog_text(box, title, TS.LABEL, Kit.MUTED, "serif_bold", Rect2(0, yy[0], w, 56))
-		var c := chip if options.size() <= 3 else Vector2(200, 96)  # five targets share the row
+		var c := chip if options.size() <= 3 else (Vector2(230, 96) if options.size() == 4 else Vector2(200, 96))
 		var t := Kit.tabs(options, sel, c * u, 20.0 * u, on_pick)
 		in_dialog(box, t, Vector2((w - t.size.x / u) * 0.5, yy[0] + 64))
 		yy[0] += 176.0
 	if key == "ai":
 		row.call(L.t("opponents"), ["1", "2", "3"], choice["players"] - 2, func(i: int): choice["players"] = i + 2)
-		row.call(L.t("difficulty"), [L.t("easy"), L.t("normal"), L.t("hard")], choice["difficulty"],
+		row.call(L.t("difficulty"), [L.t("easy"), L.t("normal"), L.t("hard"), L.t("very_hard")], choice["difficulty"],
 				func(i: int): choice["difficulty"] = i)
 		row.call(L.t("play_to"), WIN.map(func(v): return str(v)), choice["win"], func(i: int): choice["win"] = i)
 		dialog_text(box, L.t("not_rated_first"), TS.BODY, Kit.MUTED, "serif", Rect2(0, yy[0] - 10, w, 50))
@@ -112,7 +112,10 @@ func _open(key: String) -> void:
 		row.call(L.t("players_n"), ["2", "3", "4"], choice["players"] - 2, func(i: int): choice["players"] = i + 2)
 		dialog_text(box, L.t("rated_rules"), TS.BODY, Kit.MUTED, "serif", Rect2(0, yy[0] - 10, w, 50))
 	else:
-		row.call(L.t("players_n"), ["2", "3", "4"], choice["players"] - 2, func(i: int): choice["players"] = i + 2)
+		# a friends' room seats up to 6 (the Iranian edition's board)
+		var room_n := clampi(int(g.get("room_players", choice["players"])), 2, 6)
+		choice["players"] = room_n
+		row.call(L.t("players_n"), ["2", "3", "4", "5", "6"], room_n - 2, func(i: int): choice["players"] = i + 2)
 		row.call(L.t("play_to"), WIN.map(func(v): return str(v)), choice["win"], func(i: int): choice["win"] = i)
 		dialog_text(box, L.t("room_hint"), TS.BODY, Kit.MUTED, "serif", Rect2(0, yy[0] - 10, w, 50))
 		# two ways in: open a room, or join a friend's with its code
@@ -209,69 +212,77 @@ func _enter(match_key: String, mm_token: String, game: Dictionary) -> void:
 	play.emit(game)
 
 
-## Public search: the server's matchmaker, a minute at most; a seat freed in a
-## ready check at another table is taken if the server offers one.
+## Online: the server seats you at a table of this size (one that is filling,
+## or a new one); the board's waiting room then shows players arriving.
 func _search(players: int) -> void:
 	var cancelled := [false]
-	var ticket := [""]
-	var line := _busy_dialog(L.t("mode_online"), L.t("searching"), func():
-		cancelled[0] = true
-		Api.matchmaker_remove(ticket[0]))
+	_busy_dialog(L.t("mode_online"), L.t("searching"), func(): cancelled[0] = true)
 	await Api.sync_profile()
 	var r := await Api.rpc_call("start_public_search", {"playerCount": players})
 	if cancelled[0]:
 		return
 	if not r["ok"]:
 		close_dialog()
-		_fail(L.t("in_a_game") if int(r["code"]) == 9 else "")
+		if int(r["code"]) == 9:
+			_busy_elsewhere()
+		else:
+			_fail("")
 		return
-	var game := {"mode": "online", "players": players, "win_points": 18}
-	if String(r["data"].get("refillMatchId", "")) != "":
-		await _enter(String(r["data"]["refillMatchId"]), "", game)
-		return
-	if not await Api.connect_socket():
+	var table := String(r["data"].get("matchId", r["data"].get("refillMatchId", "")))
+	if table == "":
 		close_dialog()
 		_fail("")
 		return
-	var found := [{}]
-	var on_match := func(info: Dictionary): found[0] = info
-	Api.matched.connect(on_match)
-	ticket[0] = await Api.matchmaker_add(r["data"])
-	var limit := float(r["data"].get("timeoutSeconds", 60))
-	var t := 0.0
-	var poll := 0.0
-	while found[0].is_empty() and not cancelled[0] and t < limit:
-		await get_tree().process_frame
-		var dt := get_process_delta_time()
-		t += dt
-		poll += dt
-		if is_instance_valid(line):
-			line.text = "%s  %d:%02d" % [L.t("searching"), int(t) / 60, int(t) % 60]
-		if poll >= 5.0:  # a seat opened at another table?
-			poll = 0.0
-			var again := await Api.rpc_call("start_public_search", {"playerCount": players})
-			if again["ok"] and String(again["data"].get("refillMatchId", "")) != "" and found[0].is_empty():
-				await Api.matchmaker_remove(ticket[0])
-				Api.matched.disconnect(on_match)
-				await _enter(String(again["data"]["refillMatchId"]), "", game)
-				return
-	Api.matched.disconnect(on_match)
-	if cancelled[0]:
+	await _enter(table, "", {"mode": "online", "players": players, "win_points": 18,
+			"search_started": Time.get_unix_time_from_system()})
+
+
+## You are already at a table (a room you opened, a table you were waiting
+## at, or a game in progress): say which, and offer the way back or out.
+func _busy_elsewhere() -> void:
+	var r := await Api.rpc_call("get_active_game", {})
+	var d: Dictionary = r["data"] if r["ok"] else {}
+	var id := String(d.get("matchId", "")) if d.get("matchId") != null else ""
+	if id == "":
+		_fail(L.t("join_failed"))  # the lock was stale and is gone now: try again
 		return
-	if found[0].is_empty():
-		await Api.matchmaker_remove(ticket[0])
-		close_dialog()
-		message(L.t("mode_online"), L.t("nobody_found"), [
-			[L.t("cancel"), "onyx", func(): pass],
-			[L.t("retry"), "sapphire", func(): _search(players)],
-		])
-		return
-	var info: Dictionary = found[0]
-	await _enter(String(info.get("match_id", "")), String(info.get("token", "")), game)
+	var mode := String(d.get("mode", ""))
+	var phase := String(d.get("phase", ""))
+	var count := int(d.get("playerCount", 2))
+	var code := String(d.get("code", ""))
+	var started := phase in ["playing", "finalRound"]
+	var body: String
+	if started:
+		body = L.t("busy_game")
+	elif mode == "private":
+		body = L.t("busy_room", code.substr(0, 3) + " " + code.substr(3), count)
+	else:
+		body = L.t("busy_table", count)
+	var back := func():
+		var why := await Api.join_match(id)
+		if why != "":
+			_fail(L.t("game_gone"))
+			return
+		var game := {"mode": "friends" if mode == "private" else "online", "players": count, "net": true,
+				"match_id": Api.match_id, "code": code, "search_started": Time.get_unix_time_from_system()}
+		if started:
+			game["resume"] = false
+		Prefs.game = game
+		play.emit(game)
+	var close := func():
+		await Api.rpc_call("concede_match", {"matchId": id})
+		SavedGame.clear()
+		message(L.t("mode_" + ("friends" if mode == "private" else "online")),
+				L.t("room_closed_ok") if mode == "private" else L.t("left_ok"), [[L.t("ok"), "onyx", func(): pass]])
+	message(L.t("busy_title"), body, [
+		[L.t("room_close") if mode == "private" and not started else L.t("leave"), "ruby", close],
+		[L.t("busy_back"), "emerald", back],
+	])
 
 
 ## A private room: the server opens it and gives a code to share.
 func _create_room(players: int, win: int) -> void:
+	Prefs.game["room_players"] = players  # the next room starts from this size
 	var cancelled := [false]
 	_busy_dialog(L.t("mode_friends"), L.t("room_opening"), func(): cancelled[0] = true)
 	await Api.sync_profile()
@@ -280,145 +291,45 @@ func _create_room(players: int, win: int) -> void:
 		return
 	if not r["ok"]:
 		close_dialog()
-		_fail(L.t("in_a_game") if int(r["code"]) == 9 else "")
+		if int(r["code"]) == 9:
+			_busy_elsewhere()
+		else:
+			_fail("")
 		return
 	await _enter(String(r["data"].get("matchId", "")), "", {"mode": "friends", "players": players, "win_points": win,
 			"code": String(r["data"].get("code", ""))})
 
 
-## Type a friend's room code on the game's own keypad (the phone's keyboard
-## would cover the dialog): six slots on the left, the keys on the right.
-## A hardware keyboard types too, and Paste takes a code from the clipboard.
-var _pin_key := Callable()
-
-
+## Join a friend's room: its six-digit code on the keypad.
 func _join_dialog() -> void:
 	var box := dialog(Vector2(1640, 760), L.t("room_join"))
 	var w := dialog_w(box)
-	var code := [""]
 	var left_w := 820.0
 	var lx := 0.0 if not L.fa() else w - left_w
 	var kx := left_w + 40.0 if not L.fa() else 0.0
 	dialog_text(box, L.t("room_code_ask"), TS.LABEL, Kit.IVORY, "serif", Rect2(lx, 0, left_w, 70))
-	# the code on one long ivory plate: six places in two groups of three
-	# (digits always read left to right); an empty place shows a faint dot
-	var plate_w := 700.0
-	var px0 := lx + (left_w - plate_w) * 0.5
-	var field := Kit.tex("input_field")
-	if field:
-		in_dialog(box, Kit.strip(field, Vector2(plate_w, 130) * u, 0.08), Vector2(px0, 105))
-	var slots: Array[Label] = []
-	var cell := 78.0
-	var inner := cell * 6 + 40.0
-	for k in 6:
-		var x := px0 + (plate_w - inner) * 0.5 + k * cell + (40.0 if k >= 3 else 0.0)
-		slots.append(dialog_text(box, "", TS.NUM_L, Kit.INK_DARK, "num", Rect2(x, 105, cell, 130)))
 	var go_b := Kit.button(L.t("join"), Vector2(460, 130) * u, "emerald", "", 46.0 * u)
 	in_dialog(box, go_b, Vector2(lx + (left_w - 460) * 0.5, 330))
 	var note := dialog_text(box, "", TS.BODY, Color(0.95, 0.66, 0.45), "serif", Rect2(lx, 260, left_w, 50))
-	var show := func():
-		for k in 6:
-			var has: bool = k < code[0].length()
-			slots[k].text = code[0][k] if has else "·"
-			slots[k].modulate.a = 1.0 if has else 0.35
-		Kit.set_enabled(go_b, code[0].length() == 6)
-	var join := func():
-		if code[0].length() != 6:
+	var join := func(code: String):
+		if code.length() != 6:
 			return
-		_pin_key = Callable()
 		close_dialog()
 		_busy_dialog(L.t("room_join"), L.t("room_joining"), func(): pass)
 		await Api.sync_profile()
-		var r := await Api.rpc_call("join_by_code", {"code": code[0]})
+		var r := await Api.rpc_call("join_by_code", {"code": code})
 		if not r["ok"]:
 			close_dialog()
-			var why := L.t("in_a_game") if int(r["code"]) == 9 else (L.t("room_not_found") if int(r["code"]) in [3, 5] else "")
-			_fail(why)
+			if int(r["code"]) == 9:
+				_busy_elsewhere()
+				return
+			_fail(L.t("room_not_found") if int(r["code"]) in [3, 5] else "")
 			return
-		await _enter(String(r["data"].get("matchId", "")), "", {"mode": "friends", "players": 0, "code": code[0]})
-	var fa_digits := "۰۱۲۳۴۵۶۷۸۹"
-	var add_text := func(t: String):
-		for ch in t:
-			if code[0].length() >= 6:
-				break
-			if ch >= "0" and ch <= "9":
-				code[0] += ch
-			elif fa_digits.contains(ch):
-				code[0] += str(fa_digits.find(ch))
-		note.text = ""
-		show.call()
-	var press := func(key: String):
-		match key:
-			"del":
-				code[0] = code[0].left(maxi(code[0].length() - 1, 0))
-				show.call()
-			"paste":
-				var clip := DisplayServer.clipboard_get()
-				code[0] = ""
-				add_text.call(clip)
-				if code[0].is_empty():
-					note.text = L.t("paste_none")
-			"enter":
-				join.call()
-			_:
-				add_text.call(key)
-	# the keypad: 1-9, then Paste, 0, Delete
-	var key := Vector2(164, 124)
-	var gap := Vector2(22, 14)
-	var keys := ["1", "2", "3", "4", "5", "6", "7", "8", "9", "paste", "0", "del"]
-	var kw := key.x * 3 + gap.x * 2
-	var kx0 := kx + (w - left_w - 40.0 - kw) * 0.5
-	for k in keys.size():
-		var kname: String = keys[k]
-		var col := k % 3
-		var pos := Vector2(kx0 + col * (key.x + gap.x), 10 + (k / 3) * (key.y + gap.y))
-		var b: Button
-		if kname == "del":
-			b = Kit._art_button(Kit.tex("btn_arrow_left"), key.y * u)
-			in_dialog(box, b, pos + Vector2((key.x - key.y) * 0.5, 0))
-		else:
-			b = Button.new()
-			b.focus_mode = Control.FOCUS_NONE
-			Kit._empty_styles(b)
-			b.size = key * u
-			var art := Kit.tex("btn_square_onyx")
-			if art:
-				var tr := TextureRect.new()
-				tr.texture = art
-				tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-				tr.stretch_mode = TextureRect.STRETCH_SCALE
-				tr.size = b.size
-				tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-				b.add_child(tr)
-			var paste := kname == "paste"
-			var lab := Kit.label(L.t("paste") if paste else kname, (TS.BODY if paste else TS.NUM_L) * u, Kit.GOLD,
-					"sans_bold" if paste else "num", b.size.x)
-			lab.size = b.size
-			lab.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-			lab.position.y -= float(lab.get_meta("shift", 0.0))
-			b.add_child(lab)
-			Kit.feedback(b)
-			in_dialog(box, b, pos)
-		b.pressed.connect(press.bind(kname))
-	go_b.pressed.connect(join)
-	show.call()
-	for a in OS.get_cmdline_user_args():
-		if a.begins_with("--pin="):  # test: type a code on the keypad
-			for ch in a.get_slice("=", 1):
-				press.call(ch)
-	# a hardware keyboard (desktop) types into the slots
-	_pin_key = func(e: InputEventKey):
-		if e.keycode == KEY_BACKSPACE:
-			press.call("del")
-		elif e.keycode == KEY_ENTER or e.keycode == KEY_KP_ENTER:
-			press.call("enter")
-		elif e.keycode == KEY_V and e.ctrl_pressed:
-			press.call("paste")
-		elif e.unicode > 0:
-			add_text.call(char(e.unicode))
-
-
-func _unhandled_key_input(e: InputEvent) -> void:
-	if _pin_key.is_valid() and e is InputEventKey and (e as InputEventKey).pressed and _dialog != null:
-		_pin_key.call(e)
-		get_viewport().set_input_as_handled()
+		await _enter(String(r["data"].get("matchId", "")), "", {"mode": "friends", "players": 0, "code": code})
+	var pad := pin_pad(box, Rect2(lx + (left_w - 700) * 0.5, 105, 700, 130), kx, w - left_w - 40.0,
+			func(code: String, msg: String):
+				note.text = msg
+				Kit.set_enabled(go_b, code.length() == 6),
+			join)
+	Kit.set_enabled(go_b, String(pad["code"]).length() == 6)
+	go_b.pressed.connect(func(): join.call(pad["code"]))

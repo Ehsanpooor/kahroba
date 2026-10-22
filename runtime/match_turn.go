@@ -153,6 +153,10 @@ func autoSkipTurn(ms *MatchState, tc turnCtx) *MatchState {
 // A concession is a rated loss and can never win the match, whatever the
 // player's Power (see ComputeStandings).
 func handleConcede(ms *MatchState, userID string, tc turnCtx) *MatchState {
+	// Before the game, conceding is leaving the table (a host closes the room).
+	if ms.Phase == PhaseWaiting {
+		return leaveWaiting(ms, userID, true, tc)
+	}
 	// Nothing has been played during the ready check, so there is nothing to
 	// lose: conceding there is leaving, and costs the seat but no rating.
 	if ms.Phase == PhaseReadyCheck {
@@ -219,6 +223,7 @@ func finalizeMatch(ms *MatchState, tc turnCtx, reason EndReason) *MatchState {
 	ms.Phase = PhaseEnded
 	ms.EndReason = reason
 	ms.ClearTurnDeadline()
+	defer releasePersonas(ms)
 
 	cancelled := reason == EndReasonLobbyTimeout
 

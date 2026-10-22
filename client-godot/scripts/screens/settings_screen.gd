@@ -35,18 +35,19 @@ func build() -> void:
 	_toggle_row(L.t("set_vibration"), bool(Prefs.get_v("vibration")), right, y0 + 2 * 170, col_w,
 			func(on: bool): Prefs.set_v("vibration", on))
 
-	# help along the bottom
+	# help and the account along the bottom
 	var items := [[L.t("how_to"), "onyx", "book", func(): go.emit("howto", null)],
 			[L.t("set_tutorial"), "sapphire", "", func(): play.emit({"mode": "tutorial", "players": 2, "difficulty": "easy"})],
+			[L.t("account"), "emerald", "person", _account],
 			[L.t("set_reset"), "ruby", "", _ask_reset]]
 	if L.fa():
 		items.reverse()
-	var bw := 560.0
-	var gap := 60.0
-	var bx := PANEL.position.x + (PANEL.size.x - 3 * bw - 2 * gap) * 0.5
+	var bw := 460.0
+	var gap := 40.0
+	var bx := PANEL.position.x + (PANEL.size.x - items.size() * bw - (items.size() - 1) * gap) * 0.5
 	for i in items.size():
 		var it: Array = items[i]
-		var b := Kit.button(it[0], Vector2(bw, 124) * u, it[1], it[2], 42.0 * u)
+		var b := Kit.button(it[0], Vector2(bw, 124) * u, it[1], it[2], 40.0 * u)
 		put_at(b, Vector2(bx + i * (bw + gap), PANEL.end.y - 230))
 		b.pressed.connect(it[3])
 	var ver := String(ProjectSettings.get_setting("application/config/version", "0.9.0"))
@@ -68,6 +69,49 @@ func _slider_row(t: String, value: float, lo: float, hi: float, x: float, y: flo
 	_label(t, x, y, 330)
 	var s := Kit.slider(value, Vector2(500, 40) * u, on_change, lo, hi)
 	put_at(s, Vector2(x + w - 500 if not L.fa() else x, y + 40))
+
+
+## The account: its recovery email (add or change it), and recovering
+## another account onto this device.
+func _account() -> void:
+	var email := String(Prefs.get_v("email"))
+	var box := dialog(Vector2(1400, 640), L.t("account"))
+	var w := dialog_w(box)
+	dialog_text(box, L.t("email_is", email) if email != "" else L.t("email_none"), TS.LABEL,
+			Kit.GOLD if email != "" else Color(0.95, 0.66, 0.45), "sans_bold", Rect2(0, 0, w, 80))
+	var why := Kit.para(L.t("email_why_link"), TS.BODY * u, (w - 120.0) * u, Kit.IVORY)
+	in_dialog(box, why, Vector2(60, 100))
+	var bw := 500.0
+	var gap := 60.0
+	var x0 := (w - bw * 2 - gap) * 0.5
+	var add := Kit.button(L.t("email_change") if email != "" else L.t("email_add"), Vector2(bw, 130) * u, "emerald", "", 44.0 * u)
+	var rec := Kit.button(L.t("recover_btn"), Vector2(bw, 130) * u, "sapphire", "", 44.0 * u)
+	in_dialog(box, add, Vector2(x0 + (bw + gap if L.fa() else 0.0), 300))
+	in_dialog(box, rec, Vector2(x0 + (0.0 if L.fa() else bw + gap), 300))
+	add.pressed.connect(func():
+		if _need_server():
+			EmailFlow.open(self, "link", func(_d: Dictionary): note(L.t("email_saved"))))
+	rec.pressed.connect(func():
+		if not _need_server():
+			return
+		if email != "":  # this device is already an account with its own email
+			message(L.t("email_t_recover"), L.t("email_own"), [[L.t("ok"), "onyx", func(): pass]])
+			return
+		message(L.t("email_t_recover"), L.t("recover_q", int(Prefs.get_v("rating"))), [
+			[L.t("cancel"), "onyx", func(): pass],
+			[L.t("continue"), "sapphire", func():
+				EmailFlow.open(self, "recover", func(_d: Dictionary):
+					SavedGame.clear()
+					_rebuild()
+					note(L.t("email_recovered", Prefs.display_name())))],
+		]))
+
+
+func _need_server() -> bool:
+	if Net.online:
+		return true
+	message(L.t("no_server_t"), L.t("no_server_body"), [[L.t("ok"), "onyx", func(): pass]])
+	return false
 
 
 ## Forget this device's profile, settings and games, and begin again.

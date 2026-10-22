@@ -207,20 +207,26 @@ func _ready() -> void:
 			_run_test(a.get_slice("=", 1))
 
 
-## --shot=<file> [--shot-at=<s>]: save what is on screen, then quit (checks).
+## --shot=<file> [--shot-at=<s>[,<s>...]]: save what is on screen, then quit
+## (checks). Several times: one file each, <file>_<s>.png.
 func _shot_if_asked() -> void:
 	var path := ""
-	var at := 6.0
+	var times := PackedStringArray(["6"])
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--shot="):
 			path = a.get_slice("=", 1)
 		elif a.begins_with("--shot-at="):
-			at = float(a.get_slice("=", 1))
+			times = a.get_slice("=", 1).split(",")
 	if path == "":
 		return
-	await get_tree().create_timer(at).timeout
-	await RenderingServer.frame_post_draw
-	get_viewport().get_texture().get_image().save_png(path)
+	var t0 := Time.get_ticks_msec() / 1000.0
+	for t in times:
+		var wait := float(t) - (Time.get_ticks_msec() / 1000.0 - t0)
+		if wait > 0.0:
+			await get_tree().create_timer(wait).timeout
+		await RenderingServer.frame_post_draw
+		var out := path if times.size() == 1 else path.get_basename() + "_" + t + ".png"
+		get_viewport().get_texture().get_image().save_png(out)
 	get_tree().quit()
 
 
@@ -230,12 +236,18 @@ func _apply_game_config() -> void:
 	var g: Dictionary = Prefs.game
 	mode = String(g.get("mode", "ai"))
 	difficulty = String(g.get("difficulty", "normal"))
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--difficulty="):  # test: the computer's level
+			difficulty = a.get_slice("=", 1)
 	win_points = int(g.get("win_points", WIN_DEFAULT))
 	if mode == "online":
 		win_points = WIN_ONLINE
 	elif not (win_points in [15, 18, 21, 25, 30]):
 		win_points = WIN_DEFAULT
 	var n := clampi(int(g.get("players", 4)), 2, 4)
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--players="):  # test: a bigger table (friends' rooms seat up to 6)
+			n = clampi(int(a.get_slice("=", 1)), 2, 6)
 	if mode == "tutorial":  # against Cosimo the guide, no clock
 		difficulty = "easy"
 		n = 2
@@ -253,19 +265,20 @@ func _apply_game_config() -> void:
 	opps = []
 	for k in n - 1:
 		var bot: String = pool[k]
-		var face: String = bot if Portraits.available() else Portraits.BOT_FALLBACK[k]
+		var face: String = bot if Portraits.available() else Portraits.BOT_FALLBACK[k % 4]
 		if face == mine_portrait:
 			face = Portraits.BOT_FALLBACK[3]
-		var p := _new_player(L.t("bot_" + bot), face, [1080, 1150, 990][k])
+		var p := _new_player(L.t("bot_" + bot), face, [1080, 1150, 990][k % 3])
 		p["bot"] = bot
 		opps.append(p)
 	if mode == "tutorial":
 		opps = [_new_player(L.t("guide_name"), Portraits.guide(), 1200)]
-	# Splendor's bank: 4 of each colour for 2 players, 5 for 3, 7 for 4; gold 5
-	var per: int = {2: 4, 3: 5, 4: 7}[n]
+	# Splendor's bank: 4 of each colour for 2 players, 5 for 3, 7 for 4; gold 5.
+	# The Iranian 5- and 6-player table: 8 and 9, and a gold more per player.
+	var per: int = {2: 4, 3: 5, 4: 7, 5: 8, 6: 9}[n]
 	for c in Gems.COLORS:
 		bank_counts[c] = per
-	bank_counts["gold"] = 5
+	bank_counts["gold"] = 5 + maxi(n - 4, 0)
 	Prefs.changed.connect(_on_pref_changed)
 
 
@@ -1877,8 +1890,8 @@ func _noble_claim(i: int, opp_i: int) -> void:
 
 # ------------------------------------------------------------------ opponents
 
-## The computer: buy the best affordable card (prestige first), sometimes
-## reserve, otherwise take the gems it needs without going above 10.
+## The computer: AIBrain (ai_brain.gd) chooses a legal move for its level
+## (easy, normal, hard, very_hard); the helpers below play it on the table.
 var _tut_ai_turn := 0
 
 
@@ -1895,64 +1908,113 @@ func _ai_turn(i: int) -> void:
 		hud.update_opponent(i)
 		end_turn()
 		return
-	var best := -1
-	var best_pts := -1
-	for k in cards.size():
-		if cards[k].visible and not cards[k].busy and not cards[k].data.is_empty() and can_afford(o, cards[k].data):
-			var pts: int = cards[k].data["points"]
-			if pts > best_pts:
-				best = k
-				best_pts = pts
-	var res_best := -1
-	for k in (o["reserved"] as Array).size():
-		if can_afford(o, o["reserved"][k]) and int(o["reserved"][k]["points"]) > best_pts:
-			res_best = k
-			best_pts = int(o["reserved"][k]["points"])
-	var room := MAX_COINS - _total(o)
-	var can_res: bool = (o["reserved"] as Array).size() < RESERVE_MAX
-	if difficulty == "easy" and (best >= 0 or res_best >= 0) and room >= 3 and randf() < 0.4:
-		best = -1
-		res_best = -1
-	var want: Array = _ai_wants(o) if difficulty != "easy" else []
-	if res_best >= 0:
-		await _ai_buy_reserved(i, res_best)
-	elif best >= 0:
-		await _ai_buy(i, cards[best])
-	elif can_res and (room <= 0 or randf() < 0.12):
-		if randf() < 0.35:
-			await _ai_reserve_blind(i, [1, 2, 3][randi() % 3])
-		else:
-			var choices := cards.filter(func(c): return c.visible and not c.data.is_empty())
-			if not choices.is_empty():
-				await _ai_reserve(i, choices[randi() % choices.size()])
-	elif room > 0:
-		await _ai_take(i, room, want)
-	else:
-		hud.toast(L.t("opp_skips", String(o["name"])))
-		_log(i + 1, "skip")
+	var brain := AIBrain.new()
+	brain.load_snapshot(_ai_snapshot(i))
+	var dec := await _ai_think(brain)
+	if game_over or not is_inside_tree():
+		return
+	if not _ai_legal(o, dec):  # never expected: the old computer's choice is always legal
+		brain.level = "legacy"
+		dec = brain.decide()
+	match String(dec.get("kind", "skip")):
+		"buy":
+			await _ai_buy(i, cards[int(dec["index"])])
+		"buy_reserved":
+			await _ai_buy_reserved(i, int(dec["k"]))
+		"reserve":
+			await _ai_reserve(i, cards[int(dec["index"])])
+		"reserve_blind":
+			await _ai_reserve_blind(i, int(dec["tier"]))
+		"take":
+			await _ai_take(i, MAX_COINS - _total(o), [], dec["colors"])
+		_:
+			hud.toast(L.t("opp_skips", String(o["name"])))
+			_log(i + 1, "skip")
 	hud.update_opponent(i)
 	end_turn()
 
 
-func _ai_wants(o: Dictionary) -> Array:
-	var best_score := -INF
-	var best_need := {}
+## The table as plain data for AIBrain: what this computer player can see
+## (another player's card reserved blind stays hidden).
+func _ai_snapshot(i: int) -> Dictionary:
+	var board := []
 	for c in cards:
-		if not c.visible or c.data.is_empty():
-			continue
-		var need := _cost_after_bonus(o, c.data)
-		var missing := 0
-		for col in need:
-			missing += maxi(int(need[col]) - int(o["coins"][col]), 0)
-		var sc := float(c.data["points"]) * 2.0 - float(missing)
-		if sc > best_score:
-			best_score = sc
-			best_need = need
-	var out := []
-	for col in best_need:
-		if int(best_need[col]) > int(o["coins"][col]):
-			out.append(col)
-	return out
+		board.append(c.data if c.visible and not c.busy and not c.data.is_empty() else {})
+	var shown := {}
+	for m in moves:
+		if String(m.get("kind", "")) == "reserve":
+			shown[String(m.get("card", ""))] = true
+	var players := []
+	var everyone := [me] + opps
+	for s in everyone.size():
+		var q: Dictionary = everyone[s]
+		var res := []
+		for d in q["reserved"]:
+			res.append(d if s == i + 1 or shown.has(String(d.get("id", ""))) else {"hidden": true})
+		players.append({"coins": q["coins"], "cards": q["cards"], "prestige": q["prestige"], "reserved": res})
+	var free := []
+	for owner_name in noble_owner:
+		free.append(String(owner_name) == "")
+	return {
+		"bank": bank_counts, "board": board, "players": players, "seat": i + 1,
+		"decks": {1: (decks[1] as Array).size(), 2: (decks[2] as Array).size(), 3: (decks[3] as Array).size()},
+		"nobles": noble_data, "noble_free": free, "first_seat": first_seat, "final_round": final_round,
+		"win_points": win_points, "difficulty": difficulty,
+	}
+
+
+## Let the brain choose (on a worker thread where there are threads, so the
+## table keeps moving); the stronger levels take a moment longer to "think".
+func _ai_think(brain: AIBrain) -> Dictionary:
+	var pause := 0.0
+	if difficulty == "hard":
+		pause = randf_range(0.3, 0.7)
+	elif difficulty == "very_hard":
+		pause = randf_range(0.5, 1.2)
+	var until := Time.get_ticks_msec() + int(pause * 1000.0)
+	if OS.has_feature("web") or OS.get_processor_count() < 2:
+		brain.decide()
+	else:
+		var task := WorkerThreadPool.add_task(brain.decide)
+		while not WorkerThreadPool.is_task_completed(task) and is_inside_tree():
+			await get_tree().process_frame
+		WorkerThreadPool.wait_for_task_completion(task)
+	var left := until - Time.get_ticks_msec()
+	if left > 0 and is_inside_tree():
+		await _wait(left / 1000.0)
+	return brain.result
+
+
+## A last check of the brain's move against the table as it is now.
+func _ai_legal(o: Dictionary, dec: Dictionary) -> bool:
+	var reserved: Array = o["reserved"]
+	match String(dec.get("kind", "")):
+		"buy", "reserve":
+			var k := int(dec.get("index", -1))
+			if k < 0 or k >= cards.size():
+				return false
+			var c := cards[k]
+			if not c.visible or c.busy or c.data.is_empty():
+				return false
+			return can_afford(o, c.data) if dec["kind"] == "buy" else reserved.size() < RESERVE_MAX
+		"buy_reserved":
+			var k := int(dec.get("k", -1))
+			return k >= 0 and k < reserved.size() and can_afford(o, reserved[k])
+		"reserve_blind":
+			return reserved.size() < RESERVE_MAX and not (decks.get(int(dec.get("tier", 0)), []) as Array).is_empty()
+		"take":
+			var cols: Array = dec.get("colors", [])
+			if cols.is_empty() or cols.size() > 3 or _total(o) + cols.size() > MAX_COINS:
+				return false
+			if cols.size() == 2 and cols[0] == cols[1]:
+				return int(bank_counts.get(cols[0], 0)) >= 4
+			for c in cols:
+				if c == "gold" or cols.count(c) > 1 or int(bank_counts.get(c, 0)) <= 0:
+					return false
+			return true
+		"skip":
+			return true
+	return false
 
 
 func _opp_world(i: int, height_px := 200.0) -> Vector3:

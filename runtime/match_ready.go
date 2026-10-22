@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 
 	"github.com/heroiclabs/nakama-common/runtime"
@@ -46,6 +47,12 @@ func enterReadyCheck(ms *MatchState, nowMs int64) {
 	deadline := nowMs + int64(ReadyTimeoutSeconds)*1000
 	for i := range ms.Players {
 		p := &ms.Players[i]
+		if p.Persona {
+			// a regular takes a moment to press Ready, like anyone
+			p.Ready, p.ReadyDeadlineMs = false, 0
+			p.ReadyAtMs = nowMs + personaReadyDelay(ms.random()).Milliseconds()
+			continue
+		}
 		if p.IsAI {
 			p.Ready, p.ReadyDeadlineMs = true, 0
 			continue
@@ -99,6 +106,9 @@ func checkReadyCheck(ms *MatchState, tc turnCtx) *MatchState {
 			}
 			tc.logger.Info("ready check: nobody took open seat %d; seating a bot", i)
 			seatBot(ms, i)
+			changed = true
+		case p.Persona && !p.Ready && p.ReadyAtMs > 0 && tc.now >= p.ReadyAtMs:
+			p.Ready, p.ReadyAtMs = true, 0
 			changed = true
 		case !p.IsAI && !p.Ready && p.ReadyDeadlineMs > 0 && tc.now >= p.ReadyDeadlineMs:
 			removeSeat(ms, i, RemovedReadyTimeout, tc)
@@ -155,7 +165,7 @@ func startGame(ms *MatchState, tc turnCtx) *MatchState {
 	// A bot has no rating, so a table left with one human is no longer a
 	// rated game. With two or more humans it stays rated, among them only
 	// (see applyRatingUpdates).
-	if ms.Rated && ms.humanSeatCount() < 2 {
+	if ms.Rated && ms.ratedSeatCount() < 2 {
 		ms.Rated = false
 		tc.logger.Info("ready check left fewer than two humans; match is now unrated")
 	}
@@ -215,6 +225,15 @@ func removeSeat(ms *MatchState, seat int, reason string, tc turnCtx) {
 
 // seatBot puts a Normal bot in a seat. It is ready at once.
 func seatBot(ms *MatchState, seat int) {
+	if ms.Public {
+		if p := pickPersona(averageHumanRating(ms), "", ms.random(), ms.avatarsInUse()); p != nil {
+			pl := newPersonaPlayer(context.Background(), nil, p)
+			pl.Rating = p.BaseRating
+			pl.ReadyAtMs = nowMs() + personaReadyDelay(ms.random()).Milliseconds()
+			ms.Players[seat] = pl
+			return
+		}
+	}
 	bot := newAIPlayer(seat, AINormal, ms.random())
 	bot.Ready = true
 	ms.Players[seat] = bot
@@ -280,6 +299,17 @@ func (ms *MatchState) humanSeatCount() int {
 	return n
 }
 
+// ratedSeatCount counts the seats that are rated: humans and personas.
+func (ms *MatchState) ratedSeatCount() int {
+	n := 0
+	for i := range ms.Players {
+		if (!ms.Players[i].IsAI || ms.Players[i].Persona) && !ms.Players[i].SeatOpen {
+			n++
+		}
+	}
+	return n
+}
+
 func (ms *MatchState) openSeatCount() int {
 	n := 0
 	for i := range ms.Players {
@@ -335,6 +365,7 @@ type matchLabel struct {
 	PlayerCount int    `json:"playerCount"`
 	Mode        string `json:"mode"` // public | private | ai
 	Open        int    `json:"open"`
+	Phase       string `json:"phase"` // waiting | readyCheck | playing | finalRound | ended
 }
 
 func (ms *MatchState) mode() string {
@@ -349,6 +380,9 @@ func (ms *MatchState) mode() string {
 
 func (ms *MatchState) label(nowMs int64) string {
 	open := 0
+	if ms.Phase == PhaseWaiting && ms.Public {
+		open = ms.ExpectedPlayerCount - len(ms.Players)
+	}
 	if ms.Phase == PhaseReadyCheck && ms.mode() == "public" {
 		open = ms.openSeatCount() - ms.liveRefillClaims(nowMs)
 		if open < 0 {
@@ -360,6 +394,7 @@ func (ms *MatchState) label(nowMs int64) string {
 		PlayerCount: ms.ExpectedPlayerCount,
 		Mode:        ms.mode(),
 		Open:        open,
+		Phase:       string(ms.Phase),
 	})
 	return string(b)
 }

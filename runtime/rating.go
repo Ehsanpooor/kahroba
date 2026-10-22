@@ -99,7 +99,7 @@ func applyRatingUpdates(ctx context.Context, logger runtime.Logger, nk runtime.N
 	// comparison: the humans are rated on how they finished against each other.
 	seats := make([]int, 0, len(ms.Players))
 	for i := range ms.Players {
-		if !ms.Players[i].IsAI && !ms.Players[i].SeatOpen && ms.Players[i].UserID != "" {
+		if (!ms.Players[i].IsAI || ms.Players[i].Persona) && !ms.Players[i].SeatOpen && ms.Players[i].UserID != "" {
 			seats = append(seats, i)
 		}
 	}
@@ -182,12 +182,8 @@ func applyRatingUpdates(ctx context.Context, logger runtime.Logger, nk runtime.N
 			logger.Warn("applyRatingUpdates: write profile failed for %s: %v", pl.UserID, err)
 		}
 
-		// Provisional accounts stay off the public board until they settle.
-		if !prof.Provisional {
-			if _, err := nk.LeaderboardRecordWrite(ctx, LeaderboardID, pl.UserID, pl.DisplayName, int64(prof.Rating), 0, map[string]interface{}{"avatarId": pl.AvatarID}, nil); err != nil {
-				logger.Warn("applyRatingUpdates: leaderboard write failed for %s: %v", pl.UserID, err)
-			}
-		}
+		// The board lists everyone at LeaderboardMinRating or above.
+		writeLeaderboard(ctx, logger, nk, pl.UserID, pl.DisplayName, pl.AvatarID, prof.Rating)
 	}
 
 	result := make(map[string]int, n)

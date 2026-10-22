@@ -48,10 +48,10 @@ func newAIPlayer(seat int, difficulty AIDifficulty, rng *rand.Rand) PlayerState 
 }
 
 // hasAISeat reports whether this match contains any bot, which makes it an AI
-// game for history and rating purposes.
+// game for history and rating purposes. Personas are players, not bots.
 func (ms *MatchState) hasAISeat() bool {
 	for i := range ms.Players {
-		if ms.Players[i].IsAI {
+		if ms.Players[i].IsAI && !ms.Players[i].Persona {
 			return true
 		}
 	}
@@ -87,6 +87,10 @@ func scheduleAIThink(ms *MatchState, nowMs int64) {
 	}
 	p := &ms.Players[ms.CurrentTurn]
 	if !p.IsAI {
+		return
+	}
+	if p.Persona {
+		ms.AIThinkUntilMs = nowMs + humanThinkMs(ms, ms.CurrentTurn, ms.random())
 		return
 	}
 	profile := profileFor(normalizeDifficulty(p.AIDifficulty))

@@ -38,6 +38,7 @@ type PlayerView struct {
 	TurnsTaken   int             `json:"turnsTaken"`
 	IsSelf       bool            `json:"isSelf"`
 	IsAI         bool            `json:"isAI"`
+	Rating       int             `json:"rating,omitempty"`
 	AIDifficulty string          `json:"aiDifficulty,omitempty"`
 
 	// Ready check. Ready is meaningful while phase is readyCheck; SeatOpen
@@ -167,8 +168,9 @@ func (ms *MatchState) playerView(seat int, isSelf bool) PlayerView {
 		Conceded:     p.Conceded,
 		TurnsTaken:   p.TurnsTaken,
 		IsSelf:       isSelf,
-		IsAI:         p.IsAI,
-		AIDifficulty: p.AIDifficulty,
+		IsAI:         p.IsAI && !p.Persona,
+		Rating:       p.Rating,
+		AIDifficulty: personaHidden(p),
 		Ready:        p.Ready && !p.SeatOpen,
 		SeatOpen:     p.SeatOpen,
 	}

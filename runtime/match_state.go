@@ -70,6 +70,16 @@ type PlayerState struct {
 	IsAI         bool   `json:"isAI"`
 	AIDifficulty string `json:"aiDifficulty,omitempty"`
 
+	// Persona: an AI seat played by one of the regulars of the public tables
+	// (personas.go). It has a real account and rating, is rated like anyone
+	// else, and the clients see it as a player. ReadyAtMs is when it presses
+	// Ready in the ready check.
+	Persona   bool  `json:"persona,omitempty"`
+	ReadyAtMs int64 `json:"-"`
+
+	// Rating shown at the table (read from the account when the seat is taken).
+	Rating int `json:"rating,omitempty"`
+
 	// Ready check (match_ready.go). Ready is true once the seat has answered;
 	// a bot is ready from the moment it sits down. ReadyDeadlineMs is this
 	// seat's own deadline, since a replacement gets a fresh window.
@@ -181,6 +191,11 @@ type MatchState struct {
 	// lastLabel is the match label last published, so it is only re-sent
 	// when it changes.
 	lastLabel string
+
+	// Public marks an online table that fills over time (public_tables.go);
+	// botArrivals are the moments the remaining seats get a persona.
+	Public      bool `json:"public,omitempty"`
+	botArrivals []int64
 }
 
 // newSeed draws a per-match seed from the OS entropy source, falling back to
@@ -257,21 +272,38 @@ func newPlayerState(userID, displayName string) PlayerState {
 	}
 }
 
+// GemsPerColor is the bank of each colour: Splendor's 4, 5 and 7 for 2 to 4
+// players, and for the Iranian 5- and 6-player table (friends' rooms) 8 and 9.
+func GemsPerColor(playerCount int) int {
+	switch playerCount {
+	case 2:
+		return 4
+	case 3:
+		return 5
+	case 5:
+		return 8
+	case 6:
+		return 9
+	}
+	return 7
+}
+
+// GoldSupply is the gold in the bank: 5, and one more for each player past 4.
+func GoldSupply(playerCount int) int {
+	if playerCount > 4 {
+		return 5 + playerCount - 4
+	}
+	return 5
+}
+
 // applyPlayerCount sets the coin supply and reveals players+1 artifacts.
 // Safe to call again once the real player count is known (GDD v2 §5.2).
 func (ms *MatchState) applyPlayerCount(playerCount int) {
-	supplyPer := 7
-	switch playerCount {
-	case 2:
-		supplyPer = 4
-	case 3:
-		supplyPer = 5
-	}
 	ms.Supply = Cost{}
 	for _, e := range AllElements {
-		ms.Supply[e] = supplyPer
+		ms.Supply[e] = GemsPerColor(playerCount)
 	}
-	ms.AetherSupply = 5
+	ms.AetherSupply = GoldSupply(playerCount)
 
 	arts := make([]Artifact, len(AllArtifacts))
 	copy(arts, AllArtifacts)
