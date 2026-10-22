@@ -219,13 +219,7 @@ func _after_portrait() -> void:
 		_finish()
 		return
 	Api.sync_profile()  # the account carries the name before an email is added
-	var st := await Api.email_status()
-	if not is_inside_tree():
-		return
-	if not bool(st.get("available", false)):
-		_finish()
-		return
-	step = 3
+	step = 3  # no waiting on the server here: the offer is shown at once
 	_rebuild()
 
 

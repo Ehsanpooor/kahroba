@@ -20,6 +20,7 @@ var in_game := false  # an online game is running: check more often
 var _forced := ""
 var _http: HTTPRequest
 var _busy := false
+var _busy_for := 0.0  ## how long the current check has been out
 var _wait := 0.0
 
 
@@ -52,15 +53,20 @@ func check() -> void:
 	if _forced != "" or _busy:
 		return
 	_busy = true
+	_busy_for = 0.0
 	_wait = 0.0
 	if _http.request(server() + "/healthcheck") != OK:
 		_busy = false
 		_set_online(false)
+		IP.clear_cache()
 
 
 func _on_done(result: int, code: int, _headers: PackedStringArray, _body: PackedByteArray) -> void:
 	_busy = false
-	_set_online(result == HTTPRequest.RESULT_SUCCESS and code >= 200 and code < 300)
+	var ok := result == HTTPRequest.RESULT_SUCCESS and code >= 200 and code < 300
+	if not ok:
+		IP.clear_cache()  # after a network change, look the server up afresh
+	_set_online(ok)
 
 
 func _set_online(v: bool) -> void:
@@ -72,7 +78,17 @@ func _set_online(v: bool) -> void:
 
 
 func _process(delta: float) -> void:
-	if _forced != "" or _busy:
+	if _forced != "":
+		return
+	if _busy:
+		# a check that never came back (it can happen as the network changes):
+		# give up on it and ask again
+		_busy_for += delta
+		if _busy_for > TIMEOUT + 3.0:
+			_http.cancel_request()
+			_busy = false
+			IP.clear_cache()
+			_set_online(false)
 		return
 	_wait += delta
 	if _wait >= (EVERY_IN_GAME if in_game or not online else EVERY):
@@ -80,7 +96,7 @@ func _process(delta: float) -> void:
 
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_APPLICATION_FOCUS_IN and _forced == "" and _http:
+	if (what == NOTIFICATION_APPLICATION_FOCUS_IN or what == NOTIFICATION_APPLICATION_RESUMED) 			and _forced == "" and _http:
 		check()  # back in the app: the network may have changed meanwhile
 
 

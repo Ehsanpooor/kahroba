@@ -1,8 +1,8 @@
-"""Make the app icons from the icon painting (a merchant holding three gems).
+"""Make the app icons from Homa's portrait with three gems.
 
 Run:  python tools/make_icons.py
 
-Source: art/generated/ui3/app_icon_source.png (square painting, full bleed).
+Source: store/icon_homa_source.png (square painting, full bleed).
 Output: assets/icon/
   icon.png                 512  project icon (window / taskbar, boot)
   icon_192.png             192  Android launcher icon (legacy, full square)
@@ -18,7 +18,7 @@ from PIL import Image, ImageEnhance, ImageFilter
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PROJECT = os.path.normpath(os.path.join(HERE, ".."))
-SOURCE = os.path.normpath(os.path.join(PROJECT, "..", "art", "generated", "ui3", "app_icon_source.png"))
+SOURCE = os.path.normpath(os.path.join(PROJECT, "..", "store", "icon_homa_source.png"))
 OUT = os.path.join(PROJECT, "assets", "icon")
 # The launcher shows roughly the middle two thirds of an adaptive layer, so the
 # painting is drawn at this share of the layer: her face and the three gems
@@ -33,7 +33,7 @@ def square(im, px):
 
 def main():
     if not os.path.exists(SOURCE):
-        raise SystemExit("app_icon_source.png not found")
+        raise SystemExit("store/icon_homa_source.png not found")
     os.makedirs(OUT, exist_ok=True)
     art = Image.open(SOURCE).convert("RGBA")
     side = min(art.size)

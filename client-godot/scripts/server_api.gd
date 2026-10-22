@@ -49,6 +49,16 @@ var _ws_open := false
 var _cid := 0
 var _waiting := {}  ## cid -> the reply, once it arrives
 var _authing := false
+var _synced_profile := ""  ## the profile the server last accepted this session
+## The heartbeat. A socket whose network went away (Wi-Fi to mobile data, a
+## tunnel, the phone asleep) often never reports itself closed: it just goes
+## quiet. The app pings the server every few seconds; when nothing at all has
+## come back for a while the socket is treated as closed, so the game's
+## reconnect starts at once instead of waiting on a dead line.
+const PING_EVERY := 5.0
+const DEAD_AFTER := 13.0
+var _last_rx := 0.0  ## when the socket last brought anything (seconds)
+var _last_ping := 0.0
 
 
 func _ready() -> void:
@@ -105,12 +115,25 @@ func _read_token(t: String) -> void:
 
 
 ## Tell the server who you are (name and portrait). Called after sign-in and
-## whenever the profile changes.
+## whenever the profile changes; a profile the server already has this session
+## is not sent again (every request costs a round trip on a slow phone line).
 func sync_profile() -> Dictionary:
 	var portrait := String(Prefs.get_v("portrait"))
 	if not portrait.begins_with("A-") and portrait != "custom":
 		portrait = "A-01"
-	return await rpc_call("bootstrap_profile", {"displayName": Prefs.display_name(), "avatarId": portrait})
+	var name := Prefs.display_name()
+	for a in OS.get_cmdline_user_args():  # test: play as someone else (store screenshots)
+		if a.begins_with("--name="):
+			name = a.get_slice("=", 1)
+		elif a.begins_with("--portrait="):
+			portrait = a.get_slice("=", 1)
+	var sent := "%s|%s|%s" % [user_id, name, portrait]
+	if sent == _synced_profile and token != "":
+		return {"ok": true, "code": 0, "message": "", "data": {}}
+	var r := await rpc_call("bootstrap_profile", {"displayName": name, "avatarId": portrait})
+	if r["ok"]:
+		_synced_profile = sent
+	return r
 
 
 # ------------------------------------------------------------------ recovery email
@@ -226,12 +249,15 @@ func _http(path: String, method: int, body: String, auth: String) -> Dictionary:
 	var headers := PackedStringArray(["Content-Type: application/json", "Accept: application/json"])
 	if auth != "":
 		headers.append("Authorization: " + auth)
+	var t0 := Time.get_ticks_msec()
 	var err := req.request(Net.server() + path, headers, method, body)
 	if err != OK:
 		req.queue_free()
 		return {"ok": false, "code": 0, "message": "request failed", "data": {}}
 	var res: Array = await req.request_completed
 	req.queue_free()
+	if OS.get_cmdline_user_args().has("--netdebug"):
+		print("HTTP %s %d ms (result %d, status %d)" % [path.get_slice("?", 0), Time.get_ticks_msec() - t0, res[0], res[1]])
 	var status := int(res[1])
 	var text := (res[3] as PackedByteArray).get_string_from_utf8()
 	var parsed: Variant = JSON.parse_string(text) if text != "" else {}
@@ -266,6 +292,8 @@ func connect_socket() -> bool:
 		await get_tree().process_frame
 		t += get_process_delta_time()
 	_ws_open = socket_ready()
+	_last_rx = _now()
+	_last_ping = _last_rx
 	return _ws_open
 
 
@@ -346,9 +374,42 @@ func _process(_delta: float) -> void:
 			socket_closed.emit()
 		return
 	while _ws.get_available_packet_count() > 0:
+		_last_rx = _now()
 		var v: Variant = JSON.parse_string(_ws.get_packet().get_string_from_utf8())
 		if v is Dictionary:
 			_on_message(v)
+	if st != WebSocketPeer.STATE_OPEN or not _ws_open:
+		return
+	var now := _now()
+	if now - _last_rx > DEAD_AFTER:
+		_drop_socket()
+	elif now - _last_ping >= PING_EVERY:
+		_last_ping = now
+		_ws.send_text("{\"ping\":{}}")  # the server answers {"pong":{}}
+
+
+## The socket went quiet: close it and say so, as if the server had closed it.
+func _drop_socket() -> void:
+	push_warning("socket silent for %.0f s: reconnecting" % (_now() - _last_rx))
+	_ws.close()
+	_ws = null
+	if _ws_open:
+		_ws_open = false
+		socket_closed.emit()
+
+
+func _now() -> float:
+	return Time.get_ticks_msec() / 1000.0
+
+
+## Back in the app (after the phone slept, or the network changed meanwhile):
+## a socket that does not answer a ping within 5 s is treated as closed.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_RESUMED or what == NOTIFICATION_APPLICATION_FOCUS_IN:
+		if _ws and _ws_open and socket_ready():
+			_last_rx = minf(_last_rx, _now() - DEAD_AFTER + 5.0)
+			_last_ping = _now()
+			_ws.send_text("{\"ping\":{}}")
 
 
 func _on_message(m: Dictionary) -> void:

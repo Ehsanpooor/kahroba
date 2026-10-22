@@ -100,6 +100,10 @@ var staged: Array = []  # tokens over the middle: {col, node, landed, x}
 var inspecting: SCard = null
 var _inspect_reserve := -1
 var _busy := 0
+## Bumped whenever the table is built again (a reconnect, a language change):
+## an animation started on the old table no longer counts in _busy, so one
+## cut short by the rebuild cannot leave the board busy for good.
+var _gen := 0
 var _dim_alpha := 0.0
 var _lobby_node: Lobby
 var _overlay_screen: Control
@@ -458,6 +462,10 @@ func _on_resized() -> void:
 
 
 func _build() -> void:
+	_gen += 1
+	_busy = 0
+	staged.clear()  # tokens held up over the old table, and the pick they make up
+	picks.clear()
 	if world_root:
 		world_root.free()
 	inspecting = null
@@ -1609,6 +1617,7 @@ func buy_card(card: SCard, reserve_index := -1) -> void:
 	var d := card.data
 	_end_inspect_for(card)
 	_busy += 1
+	var g0 := _gen  # this table; a rebuild makes it stale
 	var col: String = d["element"]
 	var idx := cards.find(card)
 	if reserve_index >= 0:
@@ -1652,7 +1661,7 @@ func buy_card(card: SCard, reserve_index := -1) -> void:
 	if points > 0:
 		await _wait(0.25)
 		await _score_orb(dest, points)
-	_busy -= 1
+	_done(g0)
 	tut_event.emit("bought", d["id"])
 	end_turn()
 
@@ -1661,6 +1670,7 @@ func reserve_card(card: SCard) -> void:
 	var d := card.data
 	_end_inspect_for(card)
 	_busy += 1
+	var g0 := _gen  # this table; a rebuild makes it stale
 	var idx := cards.find(card)
 	Sfx.play("card_reserve")
 	_give_gold()
@@ -1675,7 +1685,7 @@ func reserve_card(card: SCard) -> void:
 	card.set_backlight(true)
 	FX.burst(world_root, dest, Color(1.0, 0.8, 0.4), U, 30, 260.0)
 	_refill(idx)
-	_busy -= 1
+	_done(g0)
 	tut_event.emit("reserved", d["id"])
 	end_turn()
 
@@ -1713,6 +1723,7 @@ func _do_reserve_blind(tier: int) -> void:
 		net.send_reserve_blind(tier, await _net_noble_pick(me["cards"]))
 		return
 	_busy += 1
+	var g0 := _gen  # this table; a rebuild makes it stale
 	var d: Dictionary = (decks[tier] as Array).pop_back()
 	_update_deck(tier)
 	_log(0, "reserve_blind", {"tier": tier})
@@ -1728,7 +1739,7 @@ func _do_reserve_blind(tier: int) -> void:
 	# only you see what it was
 	hud.announce(L.t("you_drew"), L.t("card_of", L.gem(d["element"]), d["tier"]), true, 1.6)
 	FX.burst(world_root, dest, Color(1.0, 0.8, 0.4), U, 30, 260.0)
-	_busy -= 1
+	_done(g0)
 	end_turn()
 
 
@@ -1946,6 +1957,7 @@ func _noble_claim(i: int, opp_i: int) -> void:
 	var p: Dictionary = me if opp_i < 0 else opps[opp_i]
 	hud.stop_timer()
 	_busy += 1
+	var g0 := _gen  # this table; a rebuild makes it stale
 	n.busy = true
 	n.set_raised(true)
 	var from := n.global_position
@@ -1983,7 +1995,7 @@ func _noble_claim(i: int, opp_i: int) -> void:
 	await tw3.finished
 	n.visible = false
 	FX.flash(world_root, to, Color(1.0, 0.82, 0.4), U, 160.0, 0.5)
-	_busy -= 1
+	_done(g0)
 	if opp_i < 0:
 		hud.update_me()
 		await _score_orb(to, 3)
@@ -2294,6 +2306,7 @@ func _facing_cam(tip: float, roll: float, spin: float) -> Basis:
 
 func _stage_add(col: String) -> void:
 	_busy += 1
+	var g0 := _gen  # this table; a rebuild makes it stale
 	var src: ChipStack = bank[col]
 	var chip := src.take_flying(world_root)
 	Sfx.play("token_pick")
@@ -2320,7 +2333,7 @@ func _stage_add(col: String) -> void:
 	e["landed"] = true
 	if staged.has(e):
 		FX.ring(world_root, chip.global_position, Gems.GLOW[col], U, 90.0, 0.4)
-	_busy -= 1
+	_done(g0)
 
 
 func _stage_undo() -> void:
@@ -2328,6 +2341,7 @@ func _stage_undo() -> void:
 		return
 	var e: Dictionary = staged.back()
 	_busy += 1
+	var g0 := _gen  # this table; a rebuild makes it stale
 	while not e["landed"]:
 		await get_tree().process_frame
 	staged.erase(e)
@@ -2336,13 +2350,14 @@ func _stage_undo() -> void:
 	await _arc(chip, e["col"], chip.global_position, dst.top_world(), chip.scale.x, dst.world_radius())
 	dst.receive(chip)
 	Sfx.play("token_return")
-	_busy -= 1
+	_done(g0)
 
 
 ## Every token in the middle flies to its owner: you (-1) or opponent i.
 func _stage_commit(owner: int) -> void:
 	var list := staged.duplicate()
 	_busy += 1
+	var g0 := _gen  # this table; a rebuild makes it stale
 	for e in list:
 		while not e["landed"]:
 			await get_tree().process_frame
@@ -2361,12 +2376,14 @@ func _stage_commit(owner: int) -> void:
 		hud.update_me()
 	else:
 		hud.update_opponent(owner)
-	_busy -= 1
+	_done(g0)
 
 
 func _fly_staged_to(chip: Node3D, col: String, dst: ChipStack, point: Vector3, delay: float, to_me := false) -> void:
 	if delay > 0.0:
 		await _wait(delay)
+	if not is_instance_valid(chip) or (dst and not is_instance_valid(dst)):
+		return  # the table was built again meanwhile
 	if dst:
 		await _arc(chip, col, chip.global_position, dst.top_world(), chip.scale.x, dst.world_radius())
 		dst.receive(chip)
@@ -2386,6 +2403,7 @@ func _fly_staged_to(chip: Node3D, col: String, dst: ChipStack, point: Vector3, d
 ## A token leaves a pile and lands on your tray.
 func _fly_to_me(src: ChipStack, delay: float) -> void:
 	_busy += 1
+	var g0 := _gen  # this table; a rebuild makes it stale
 	if delay > 0.0:
 		await _wait(delay)
 	var chip := src.take_flying(world_root)
@@ -2396,7 +2414,7 @@ func _fly_to_me(src: ChipStack, delay: float) -> void:
 	FX.burst(world_root, to, Gems.GLOW[src.color], U, 18, 200.0, 0.5, 10.0)
 	hud.update_me()
 	hud.me_view.pop_token(src.color)
-	_busy -= 1
+	_done(g0)
 
 
 func _fly_chip_to_point(src: ChipStack, to: Vector3, delay: float) -> void:
@@ -2454,6 +2472,13 @@ func _shake(n: Node3D) -> void:
 	for i in 4:
 		tw.tween_property(n, "position", base + Vector3((8.0 if i % 2 == 0 else -8.0), 0, 0), 0.04)
 	tw.tween_property(n, "position", base, 0.04)
+
+
+## An animation of table `g0` has finished: it no longer keeps the board busy
+## (unless the table was built again since, which already cleared _busy).
+func _done(g0: int) -> void:
+	if g0 == _gen:
+		_busy = maxi(_busy - 1, 0)
 
 
 ## Wait `s` seconds of play: the wait stands still while the game is paused.

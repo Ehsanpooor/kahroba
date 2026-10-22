@@ -32,6 +32,7 @@ const DEFAULTS := {
 }
 
 var data := {}
+var _test := {}  ## test-only values from the command line; read but never saved
 ## The game the board starts: mode "ai" | "online" | "friends" | "tutorial",
 ## players 2..4, difficulty "easy" | "normal" | "hard".
 var game := {"mode": "ai", "players": 4, "difficulty": "normal"}
@@ -54,6 +55,10 @@ func _ready() -> void:
 			data[k] = cf.get_value("prefs", k, DEFAULTS[k])
 	L.code = String(data["lang"])
 	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--name="):  # test: play as someone else, never saved (store screenshots)
+			_test["name"] = a.get_slice("=", 1)
+		elif a.begins_with("--portrait="):
+			_test["portrait"] = a.get_slice("=", 1)
 		if a.begins_with("--lang="):  # test: show another language without saving it
 			L.code = a.get_slice("=", 1)
 	# brightness: the whole picture, drawn over everything
@@ -71,6 +76,8 @@ func _ready() -> void:
 
 
 func get_v(key: String) -> Variant:
+	if _test.has(key):
+		return _test[key]
 	return data.get(key, DEFAULTS.get(key))
 
 

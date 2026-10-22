@@ -23,6 +23,8 @@ func build() -> void:
 	text(L.t("turn_rules"), TS.BODY, Kit.MUTED, "serif", Rect2(0, 990, D.x, 60))
 	if not Net.changed.is_connected(_on_net):
 		Net.changed.connect(_on_net)
+	if Net.online and not Api.socket_ready():
+		Api.connect_socket()  # open the line now, so finding or joining a table starts at once
 	if arg is int and not has_meta("opened"):  # test: --screen=play:1 opens a dialog
 		set_meta("opened", true)
 		if int(arg) == 3:  # --screen=play:3 opens the room-code keypad

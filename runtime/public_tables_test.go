@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"math/rand"
 	"testing"
 )
@@ -119,5 +120,26 @@ func TestHumanThink_WithinTheClock(t *testing.T) {
 	}
 	if maxMs < 45000 {
 		t.Errorf("slowest move %d ms; hard decisions should sometimes take 45 s or more", maxMs)
+	}
+}
+
+// Every persona wears a portrait of its own gender, opened by its rating.
+func TestPersonas_PortraitMatchesName(t *testing.T) {
+	women := 0
+	for _, p := range buildPersonas() {
+		var k int
+		fmt.Sscanf(p.Avatar, "A-%d", &k)
+		if femalePortraits[k] != femaleNames[p.Name] {
+			t.Errorf("%s wears %s", p.Name, p.Avatar)
+		}
+		if k > openAvatars(p.BaseRating) {
+			t.Errorf("%s (%d) wears %s, not yet open", p.Name, p.BaseRating, p.Avatar)
+		}
+		if femaleNames[p.Name] {
+			women++
+		}
+	}
+	if women != 34 {
+		t.Errorf("%d women in the roster, want 34", women)
 	}
 }

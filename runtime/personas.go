@@ -48,6 +48,33 @@ var personaNames = []string{
 	"Ehsan.j", "Setareh_m", "Hooman.p", "Atena",
 }
 
+// femaleNames are the roster's women (the rest are men): a persona wears a
+// portrait of its own gender, or it would give itself away.
+var femaleNames = map[string]bool{
+	"سارا": true, "نگار": true, "مهسا": true, "الناز": true, "شقایق": true, "فاطمه": true, "زهرا": true,
+	"مریم": true, "نیلوفر": true, "یاسمن": true, "پرستو": true, "هانیه": true, "ساناز": true, "ترانه": true,
+	"مینا": true, "آیدا": true, "رها": true, "نازنین": true,
+	"Mahsa.R": true, "Negin_m": true, "SaraZ": true, "Parisa.k": true, "Yasi_jj": true, "Behnaz_s": true,
+	"zahra.e": true, "Elham.nz": true, "Tina_g": true, "Roya.m": true, "Hasti": true, "Ghazal.s": true,
+	"Donya_a": true, "Mona_t": true, "Setareh_m": true, "Atena": true,
+}
+
+// femalePortraits are the women among the portraits A-01..A-32.
+var femalePortraits = map[int]bool{1: true, 3: true, 6: true, 8: true, 10: true, 11: true, 13: true, 15: true,
+	17: true, 18: true, 21: true, 24: true, 26: true, 30: true, 31: true, 32: true}
+
+// avatarFor picks a portrait of the persona's gender among those its rating has opened.
+func avatarFor(name string, rating int, r *rand.Rand) string {
+	female := femaleNames[name]
+	var pool []int
+	for k := 1; k <= openAvatars(rating); k++ {
+		if femalePortraits[k] == female {
+			pool = append(pool, k)
+		}
+	}
+	return fmt.Sprintf("A-%02d", pool[r.Intn(len(pool))])
+}
+
 // avatarUnlocks mirrors the client (Portraits.UNLOCKS): the portraits a
 // player of a given rating has opened.
 var avatarUnlocks = [][2]int{{0, 10}, {1100, 13}, {1200, 16}, {1400, 20}, {1600, 25}, {2000, 30}}
@@ -92,7 +119,7 @@ func buildPersonas() []*persona {
 		default:
 			skill, rating = AIVeryHard, 1300+r.Intn(320)
 		}
-		avatar := fmt.Sprintf("A-%02d", 1+r.Intn(openAvatars(rating)))
+		avatar := avatarFor(name, rating, r)
 		out = append(out, &persona{Key: key, Name: name, Skill: skill, BaseRating: rating, Avatar: avatar})
 	}
 	return out
@@ -122,6 +149,11 @@ func initPersonas(ctx context.Context, logger runtime.Logger, nk runtime.NakamaM
 			if err := writeRatingProfile(ctx, nk, uid, prof); err != nil {
 				logger.Warn("persona %s: rating failed: %v", p.Key, err)
 			}
+			writeLeaderboard(ctx, logger, nk, uid, p.Name, p.Avatar, prof.Rating)
+		} else if prof, err := readRatingProfile(ctx, nk, uid); err == nil && prof != nil {
+			// the board keeps the portrait it was first written with (a write
+			// with the same score leaves the record as it is): write it anew
+			_ = nk.LeaderboardRecordDelete(ctx, LeaderboardID, uid)
 			writeLeaderboard(ctx, logger, nk, uid, p.Name, p.Avatar, prof.Rating)
 		}
 	}

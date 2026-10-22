@@ -28,6 +28,10 @@ var _ready_state := {}
 var _game_started := {}
 var _ended := false
 var _resync := false  ## after a reconnect the next state replaces the table
+## A move that got no answer (lost as the line dropped and came back): after a
+## few seconds the whole table is asked for again and rebuilt from it.
+const AWAIT_LIMIT := 8.0
+var _awaiting_for := 0.0
 var ad_break := false  ## the server's ad break before the game: waiting for the others
 var _ad_sent := false
 
@@ -658,6 +662,7 @@ func _sync() -> void:
 ## qualifying for more than one ("" = none to choose).
 func send_take(picks: Array, noble := "") -> void:
 	awaiting = true
+	_awaiting_for = 0.0
 	if picks.size() == 2 and picks[0] == picks[1]:
 		Api.send_op(Api.OP_CHANNEL, {"element": Api.TO_ELEMENT[picks[0]], "artifactId": noble})
 	else:
@@ -666,16 +671,19 @@ func send_take(picks: Array, noble := "") -> void:
 
 func send_buy(id: String, from_reserve: bool, noble := "") -> void:
 	awaiting = true
+	_awaiting_for = 0.0
 	Api.send_op(Api.OP_HIRE, {"characterId": id, "fromReserve": from_reserve, "aetherUse": 0, "artifactId": noble})
 
 
 func send_reserve(id: String, noble := "") -> void:
 	awaiting = true
+	_awaiting_for = 0.0
 	Api.send_op(Api.OP_JAIL, {"characterId": id, "artifactId": noble})
 
 
 func send_reserve_blind(tier: int, noble := "") -> void:
 	awaiting = true
+	_awaiting_for = 0.0
 	Api.send_op(Api.OP_JAIL, {"characterId": "", "tier": tier, "artifactId": noble})
 
 
@@ -746,15 +754,38 @@ func _on_socket_closed() -> void:
 		await get_tree().create_timer(2.0).timeout
 		if not Net.online:
 			continue
-		if await Api.connect_socket() and await Api.join_match(String(Prefs.game.get("match_id", ""))) == "":
+		if not await Api.connect_socket():
+			continue
+		var why := await Api.join_match(String(Prefs.game.get("match_id", "")))
+		if why == "":
 			_resync = true
 			Api.send_op(Api.OP_SYNC)
 			b._on_net_changed(true)
 			return
+		if why.to_lower().contains("not found"):
+			# the game ended while we were away: nothing to go back to
+			SavedGame.clear()
+			b.hud.close_modal()
+			get_tree().paused = false
+			b.hud.toast(L.t("game_gone"))
+			get_tree().create_timer(1.6).timeout.connect(b._to_menu)
+			return
+
+
+func _process(delta: float) -> void:
+	if not awaiting or _ended:
+		return
+	_awaiting_for += delta
+	if _awaiting_for > AWAIT_LIMIT and Api.socket_ready():
+		_awaiting_for = 0.0
+		push_warning("move unanswered for %.0f s: asking for the table again" % AWAIT_LIMIT)
+		_resync = true
+		Api.send_op(Api.OP_SYNC)
 
 
 ## A fresh state after a reconnect replaces everything.
 func resync(s: Dictionary) -> void:
+	awaiting = false  # a move sent as the line died got no answer: the state says what happened
 	_set_state(s)
 	apply_full()
 	b._build()

@@ -27,7 +27,7 @@ const DEFAULTS := {
 		},
 	},
 	"minVersion": "0.9.3",
-	"latestVersion": "0.9.4",
+	"latestVersion": "0.9.5",
 	"updateUrl": "https://cafebazaar.ir/app/ir.aizood.splendor",
 	"updateMessage": {"fa": "", "en": ""},
 	"announcement": null,

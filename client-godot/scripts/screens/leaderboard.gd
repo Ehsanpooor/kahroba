@@ -25,6 +25,8 @@ func build() -> void:
 	text(note, TS.CAPTION, Color(0.9, 0.66, 0.45), "serif", Rect2(0, 1032, D.x, 40))
 	if Net.online:
 		_fetch()
+	if not Net.changed.is_connected(_on_net):
+		Net.changed.connect(_on_net)  # opened before the line was known (or while it was down)
 	# column titles
 	var cols := [[L.t("col_rank"), 40, 140], [L.t("col_player"), 330, 600], [L.t("col_wins"), 1180, 200],
 			[L.t("col_rating"), 1460, 260]]
@@ -79,6 +81,13 @@ func _row(parent: Control, rank: int, p: Array, at: Vector2, mine: bool) -> void
 			HORIZONTAL_ALIGNMENT_CENTER, holder)
 	text(str(p[2]), TS.NUM_M, Kit.GOLD if not mine else ink, "num", Rect2(mx(1460, 260, ROW.x), 0, 260, ROW.y),
 			HORIZONTAL_ALIGNMENT_CENTER, holder)
+
+
+func _on_net(online: bool) -> void:
+	if is_inside_tree():
+		if online:
+			_fetch()
+		_rebuild()  # the note under the board follows the line
 
 
 ## The rating board from the server (players still provisional are not on it).
