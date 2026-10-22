@@ -9,7 +9,7 @@
 زود گیمرز (Zood Gamers)
 
 ## نام بسته
-com.elva.splendor
+ir.aizood.splendor
 
 ## دسته‌بندی
 بازی ← فکری (رومیزی)
