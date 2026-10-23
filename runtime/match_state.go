@@ -95,6 +95,11 @@ type PlayerState struct {
 	// AdDone is set when this seat's app has sent AD_DONE in the online ad
 	// break (match_ready.go). Only human seats are waited for.
 	AdDone bool `json:"adDone,omitempty"`
+
+	// The pause of a friends' game (match_pause.go): this player asked for
+	// it, or (while paused) is ready to go on.
+	PauseVote  bool `json:"pauseVote,omitempty"`
+	ResumeVote bool `json:"resumeVote,omitempty"`
 }
 
 // ReserveIDs returns the card IDs the player currently holds in reserve.
@@ -209,6 +214,12 @@ type MatchState struct {
 	// 0 when there has been none. It stays set once the break began, so a
 	// table that loses a player meanwhile is not sent a second break.
 	AdBreakUntilMs int64 `json:"adBreakUntilMs,omitempty"`
+
+	// A paused friends' game (match_pause.go): the clock stands still with
+	// PausedTurnLeftMs left on it, and the room closes at PauseCloseAtMs.
+	Paused           bool  `json:"paused,omitempty"`
+	PausedTurnLeftMs int64 `json:"-"`
+	PauseCloseAtMs   int64 `json:"pauseCloseAtMs,omitempty"`
 }
 
 // newSeed draws a per-match seed from the OS entropy source, falling back to

@@ -45,6 +45,10 @@ type PlayerView struct {
 	// marks a seat being held for a replacement (no user yet).
 	Ready    bool `json:"ready"`
 	SeatOpen bool `json:"seatOpen"`
+
+	// The pause of a friends' game (match_pause.go).
+	PauseVote  bool `json:"pauseVote"`
+	ResumeVote bool `json:"resumeVote"`
 }
 
 // StateView is the payload of STATE_FULL (op 100).
@@ -86,6 +90,10 @@ type StateView struct {
 	// the seat that opened the game, -1 until it starts.
 	ReadyDeadlineMs int64 `json:"readyDeadlineMs,omitempty"`
 	FirstSeat       int   `json:"firstSeat"`
+
+	// The table's flags as TABLE_STATUS carries them (match_pause.go), so a
+	// device that loads the table again sees the pause at once.
+	Table msgTableStatus `json:"table"`
 }
 
 // ViewFor projects the authoritative state for one viewer. Pass an empty
@@ -127,6 +135,7 @@ func (ms *MatchState) ViewFor(viewerID string, nowMs int64) StateView {
 		EndReason:           ms.EndReason,
 		FirstSeat:           -1,
 	}
+	view.Table = ms.tableStatus(nowMs)
 	if ms.Phase == PhaseReadyCheck {
 		view.ReadyDeadlineMs = readyStateMessage(ms, nowMs).DeadlineMs
 	}
@@ -173,5 +182,7 @@ func (ms *MatchState) playerView(seat int, isSelf bool) PlayerView {
 		AIDifficulty: personaHidden(p),
 		Ready:        p.Ready && !p.SeatOpen,
 		SeatOpen:     p.SeatOpen,
+		PauseVote:    p.PauseVote,
+		ResumeVote:   p.ResumeVote,
 	}
 }

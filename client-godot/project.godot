@@ -10,7 +10,7 @@ config/name="Splendor"
 config/name_localized={
 "fa": "اسپلندور"
 }
-config/version="0.9.7"
+config/version="0.9.8"
 run/main_scene="res://scenes/app.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 boot_splash/bg_color=Color(0.0431373, 0.0431373, 0.0392157, 1)

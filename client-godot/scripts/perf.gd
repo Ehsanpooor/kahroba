@@ -64,5 +64,11 @@ func _process(_delta: float) -> void:
 		_realtime()
 	if OS.get_cmdline_user_args().has("--perfdebug") and Engine.get_process_frames() % 60 == 0:
 		print("PERF fps=%d max=%d" % [Engine.get_frames_per_second(), Engine.max_fps])
+	if OS.get_cmdline_user_args().has("--memlog") and Engine.get_process_frames() % 600 == 0:
+		print("MEM t=%d objects=%d nodes=%d orphans=%d resources=%d static=%.1fMB video=%.1fMB" % [
+			Time.get_ticks_msec() / 1000, Performance.get_monitor(Performance.OBJECT_COUNT),
+			Performance.get_monitor(Performance.OBJECT_NODE_COUNT), Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT),
+			Performance.get_monitor(Performance.OBJECT_RESOURCE_COUNT), Performance.get_monitor(Performance.MEMORY_STATIC) / 1048576.0,
+			Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0])
 	if mobile and Engine.max_fps != IDLE_FPS and Time.get_ticks_msec() / 1000.0 > _awake_until:
 		Engine.max_fps = IDLE_FPS

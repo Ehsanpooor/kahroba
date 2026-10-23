@@ -167,6 +167,7 @@ func handleConcede(ms *MatchState, userID string, tc turnCtx) *MatchState {
 		return ms
 	}
 	ms.Players[seat].Conceded = true
+	ms.Players[seat].PauseVote, ms.Players[seat].ResumeVote = false, false
 	tc.logger.Info("player conceded userId=%s seat=%d", userID, seat)
 
 	switch ms.ActivePlayerCount() {
@@ -174,6 +175,25 @@ func handleConcede(ms *MatchState, userID string, tc turnCtx) *MatchState {
 		return finalizeMatch(ms, tc, EndReasonAllLeft)
 	case 1:
 		return finalizeMatch(ms, tc, EndReasonLastStanding)
+	}
+
+	// One player fewer: N-1 is lower now, which may start or end a pause.
+	if ms.canPause() {
+		ms = settlePause(ms, tc)
+		if ms.Paused {
+			// Still paused: the turn moves on if it was theirs, but its
+			// clock waits for the resume.
+			if ms.CurrentTurn == seat {
+				if ms.AdvanceTurn() {
+					return finalizeMatch(ms, tc, EndReasonThreshold)
+				}
+				ms.TurnNumber++
+				ms.PausedTurnLeftMs = int64(TurnSeconds) * 1000
+			}
+			broadcastState(ms, tc.dispatcher, tc.now)
+			broadcastTableStatus(ms, tc.dispatcher, tc.now)
+			return ms
+		}
 	}
 
 	// Conceding on your own turn passes play immediately, with a full fresh

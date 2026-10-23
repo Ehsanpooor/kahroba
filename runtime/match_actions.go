@@ -67,6 +67,21 @@ func processMessage(ms *MatchState, msg runtime.MatchData, tc turnCtx) *MatchSta
 		return ms
 	}
 
+	// The pause of a friends' game is voted by anyone, on turn or not.
+	switch op {
+	case OpPause:
+		return handlePauseVote(ms, senderID, msg.GetData(), tc)
+	case OpResume:
+		return handleResumeVote(ms, senderID, msg.GetData(), tc)
+	}
+	if ms.Paused {
+		rejectCode(ms, tc.dispatcher, senderID, ErrGamePaused, "the game is paused")
+		return ms
+	}
+	if op == OpSkip {
+		return handleSkip(ms, senderID, tc)
+	}
+
 	seat := ms.SeatOf(senderID)
 	if seat < 0 || seat != ms.CurrentTurn {
 		rejectCode(ms, tc.dispatcher, senderID, ErrNotYourTurn, "it is not your turn")

@@ -475,3 +475,85 @@ func portrait_point() -> Vector2:
 
 func score_point() -> Vector2:
 	return _score.global_position + _score.size * 0.5
+
+
+# ------------------------------------------------------------------ offline, and the pause of a friends' game
+
+const OFFLINE_RED := Color(0.9, 0.12, 0.08)
+const RIM_SHADER := "shader_type canvas_item;\nuniform vec4 rim : source_color;\nvoid fragment() { COLOR = vec4(rim.rgb, texture(TEXTURE, UV).a * rim.a * COLOR.a); }\n"
+static var _rim_shader: Shader
+var _rim: TextureRect
+var _rim_tw: Tween
+var _word: Label
+var _word_tw: Tween
+
+
+## A red rim around the panel while this player is offline: the panel's own
+## shape a little larger, in red, behind it, slowly breathing.
+func set_offline(on: bool) -> void:
+	if on == (_rim != null):
+		return
+	if not on:
+		if _rim_tw and _rim_tw.is_valid():
+			_rim_tw.kill()
+		_rim.queue_free()
+		_rim = null
+		return
+	var tex := _hud("panel_me" if mode == "me" else "panel_seat")
+	if tex == null or _bg == null:
+		return
+	if _rim_shader == null:
+		_rim_shader = Shader.new()
+		_rim_shader.code = RIM_SHADER
+	var pad := _len(14.0)
+	_rim = TextureRect.new()
+	_rim.texture = tex
+	_rim.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_rim.stretch_mode = TextureRect.STRETCH_SCALE
+	_rim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_rim.position = _bg.position - Vector2.ONE * pad
+	_rim.size = _bg.size + Vector2.ONE * pad * 2.0
+	var m := ShaderMaterial.new()
+	m.shader = _rim_shader
+	m.set_shader_parameter("rim", OFFLINE_RED)
+	_rim.material = m
+	add_child(_rim)
+	move_child(_rim, _bg.get_index())  # behind the panel: only its edge shows
+	_rim_tw = _rim.create_tween().set_loops()
+	_rim_tw.tween_property(_rim, "modulate:a", 0.45, 0.9).set_trans(Tween.TRANS_SINE)
+	_rim_tw.tween_property(_rim, "modulate:a", 1.0, 0.9).set_trans(Tween.TRANS_SINE)
+
+
+## PAUSED over the panel of a player who asked for the pause: it swells in,
+## holds, shrinks away and leaves the panel in plain view for a moment, again
+## and again, so the panel can still be read between the beats.
+func set_paused(on: bool) -> void:
+	if on == (_word != null):
+		return
+	if not on:
+		if _word_tw and _word_tw.is_valid():
+			_word_tw.kill()
+		_word.queue_free()
+		_word = null
+		return
+	var bg := _bg.get_rect() if _bg else Rect2(Vector2.ZERO, size)
+	var px := bg.size.y * (0.3 if mode == "me" else 0.34)
+	_word = Fonts.label2d(L.t("paused_word"), px, Color(1.0, 0.86, 0.5), "title_bold", px * 0.14)
+	_word.add_theme_color_override("font_outline_color", Color(0.23, 0.08, 0.02))
+	_word.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_word.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_word.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_word.size = Vector2(bg.size.x, px * 1.7)
+	_word.position = bg.position + Vector2(0, (bg.size.y - _word.size.y) * 0.5)
+	_word.pivot_offset = _word.size * 0.5
+	_word.scale = Vector2.ONE * 0.5
+	_word.modulate.a = 0.0
+	add_child(_word)
+	_word_tw = _word.create_tween().set_loops()
+	_word_tw.tween_property(_word, "scale", Vector2.ONE * 1.12, 0.38).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	_word_tw.parallel().tween_property(_word, "modulate:a", 1.0, 0.22)
+	_word_tw.tween_property(_word, "scale", Vector2.ONE, 0.2).set_trans(Tween.TRANS_SINE)
+	_word_tw.tween_interval(0.7)
+	_word_tw.tween_property(_word, "scale", Vector2.ONE * 0.5, 0.32).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	_word_tw.parallel().tween_property(_word, "modulate:a", 0.0, 0.32)
+	_word_tw.tween_interval(0.8)

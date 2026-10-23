@@ -260,6 +260,10 @@ func handleJoin(ms *MatchState, tc turnCtx, presences []runtime.Presence) *Match
 		for _, pres := range joined {
 			sendStateTo(ms, tc.dispatcher, pres, tc.now)
 		}
+		// Back at a running game: everyone sees them online again.
+		if len(joined) > 0 && (ms.Phase == PhasePlaying || ms.Phase == PhaseFinalRound) {
+			broadcastTableStatus(ms, tc.dispatcher, tc.now)
+		}
 	}
 	// A player who comes back during the ad break and has not answered it
 	// hears about it again, or the table would wait for them until the end.
@@ -305,6 +309,9 @@ func handleLeave(ms *MatchState, tc turnCtx, presences []runtime.Presence) *Matc
 		if seat >= 0 {
 			ms.Players[seat].Disconnected = true
 			tc.logger.Info("player disconnected userId=%s seat=%d", userID, seat)
+			if ms.Phase == PhasePlaying || ms.Phase == PhaseFinalRound {
+				broadcastTableStatus(ms, tc.dispatcher, tc.now) // the others see them offline
+			}
 		}
 	}
 	return ms
@@ -367,6 +374,12 @@ func runLoop(ms *MatchState, tc turnCtx, messages []runtime.MatchData) *MatchSta
 		if ms.Phase == PhaseEnded {
 			return ms
 		}
+	}
+
+	// A paused friends' game stands still (no bot, no clock) until it is
+	// resumed or its room closes.
+	if ms.Paused {
+		return checkPauseTimeout(ms, tc)
 	}
 
 	// A bot on turn acts once its thinking pause has elapsed.

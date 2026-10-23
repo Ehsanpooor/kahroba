@@ -486,6 +486,142 @@ func stop_timer() -> void:
 	timer_running = false
 
 
+## The clock goes on (after the pause of a friends' game; turn_started is set).
+## The clock stands still at `left` seconds (a paused friends' game).
+func freeze_clock(left: float) -> void:
+	timer_running = false
+	turn_started = Time.get_ticks_msec() / 1000.0 - (TURN_SECONDS - left)
+	if clock:
+		clock.set_time(left / TURN_SECONDS, left)
+
+
+func resume_timer() -> void:
+	timer_running = true
+	_time_up_sent = false
+	_tick_sec = -1
+
+
+# ------------------------------------------------------------------ the pause of a friends' game
+
+## A player's marks on their panel (k: 0 = you, 1.. = the opponents): a red
+## rim while they are offline, PAUSED beating over it once they asked for the
+## pause.
+func set_seat_flags(k: int, offline: bool, pause: bool) -> void:
+	var v: PlayerView = me_view if k == 0 else (seats[k - 1] if k - 1 < seats.size() else null)
+	if v:
+		v.set_offline(offline)
+		v.set_paused(pause)
+
+
+var _veil: Control
+var _veil_body: Label
+var _veil_votes: Label
+var _veil_resume: Button
+var _veil_too: Button
+var _veil_close_at := 0.0  # local seconds when the paused room closes
+var _veil_sec := -1
+const VEIL_CARD := Vector2(1040, 560)
+
+
+func veil_open() -> bool:
+	return _veil != null and is_instance_valid(_veil)
+
+
+## The game is paused: the whole board goes under the bare table (nobody can
+## study it meanwhile) while every panel stays in view, and a card in the
+## middle counts who is ready to go on and when the room closes.
+## info: {votes, needed, mine (you are ready), my_pause, close_in (seconds)}
+func pause_veil(info: Dictionary, on_resume: Callable, on_pause_too: Callable) -> void:
+	if not veil_open():
+		_build_veil(on_resume, on_pause_too)
+	_veil_close_at = Time.get_ticks_msec() / 1000.0 + maxf(float(info.get("close_in", 0.0)), 0.0)
+	_veil_sec = -1
+	_veil_tick()
+	var mine: bool = info.get("mine", false)
+	_veil_votes.text = L.t("resume_votes", int(info.get("votes", 0)), int(info.get("needed", 2)))
+	(_veil_resume.get_meta("label") as Label).text = L.t("resume_not_ready") if mine else L.t("resume_ready")
+	_veil_too.visible = not info.get("my_pause", false)
+	_veil_layout()
+
+
+func close_veil() -> void:
+	if not veil_open():
+		return
+	var v := _veil
+	_veil = null
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var tw := v.create_tween()
+	tw.tween_property(v, "modulate:a", 0.0, 0.35)
+	tw.tween_callback(v.queue_free)
+
+
+func _build_veil(on_resume: Callable, on_pause_too: Callable) -> void:
+	if _announce and is_instance_valid(_announce):
+		_announce.queue_free()
+	var vp := get_viewport_rect().size
+	_veil = Control.new()
+	_veil.size = vp
+	_veil.mouse_filter = Control.MOUSE_FILTER_STOP  # the board underneath takes no touch
+	add_child(_veil)
+	move_child(_veil, 0)  # under the panels, which stay in view
+	var cloth := TextureRect.new()
+	cloth.texture = Tex.get_tex("res://assets/splendor/hud/table.png")
+	cloth.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	cloth.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	cloth.size = vp
+	cloth.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_veil.add_child(cloth)
+	var box := Kit.dialog(VEIL_CARD * s, L.t("paused_t"), false)
+	box.name = "card"
+	_veil.add_child(box)
+	var c := Control.new()
+	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	c.position = Vector2(0, HEAD * s)
+	box.add_child(c)
+	_veil_body = _para(c, "", TS.BODY, IVORY, Vector2(70, 26), VEIL_CARD.x - 140.0)
+	_veil_votes = _text(c, "", TS.BODY, Kit.GOLD, "title_bold", Vector2(70, 196), VEIL_CARD.x - 140.0)
+	_veil_resume = button(L.t("resume_ready"), Vector2(420, 116), "emerald", on_resume, 40.0)
+	_veil_too = button(L.t("pause_too"), Vector2(400, 116), "onyx", on_pause_too, 40.0)
+	c.add_child(_veil_resume)
+	c.add_child(_veil_too)
+	_veil.modulate.a = 0.0
+	box.pivot_offset = box.size * 0.5
+	box.scale = Vector2.ONE * 0.9
+	var tw := _veil.create_tween().set_parallel(true)
+	tw.tween_property(_veil, "modulate:a", 1.0, 0.3)
+	tw.tween_property(box, "scale", Vector2.ONE, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+
+## The card sits on the middle of the card area; its buttons side by side
+## (only Resume when you already asked for the pause yourself).
+func _veil_layout() -> void:
+	var box: Control = _veil.get_node("card")
+	var mid := lay.screen(CENTER + Vector2(0, 40)) if lay else get_viewport_rect().size * 0.5
+	box.position = mid - box.size * 0.5
+	var y := (VEIL_CARD.y - HEAD - 160.0) * s
+	var w1 := 420.0 * s
+	var w2 := 400.0 * s
+	var gap := 40.0 * s
+	if _veil_too.visible:
+		var x0 := (box.size.x - w1 - w2 - gap) * 0.5
+		_veil_resume.position = Vector2(x0 + (w2 + gap if L.fa() else 0.0), y)
+		_veil_too.position = Vector2(x0 + (0.0 if L.fa() else w1 + gap), y)
+	else:
+		_veil_resume.position = Vector2((box.size.x - w1) * 0.5, y)
+
+
+## The room's countdown, each second.
+func _veil_tick() -> void:
+	if not veil_open():
+		return
+	var left := maxf(_veil_close_at - Time.get_ticks_msec() / 1000.0, 0.0)
+	var sec := int(left)
+	if sec == _veil_sec:
+		return
+	_veil_sec = sec
+	_veil_body.text = L.t("paused_room", "%d:%02d" % [sec / 60, sec % 60])
+
+
 func _show_turn() -> void:
 	if me_view == null:
 		return
@@ -499,6 +635,7 @@ func _show_turn() -> void:
 
 
 func _process(_delta: float) -> void:
+	_veil_tick()
 	if not timer_running or me_view == null:
 		return
 	var t := Time.get_ticks_msec() / 1000.0
@@ -606,6 +743,8 @@ func toast(text: String) -> void:
 ## A big line across the middle ("Your turn"): your turns on an emerald
 ## plate, the others on onyx.
 func banner(text: String, mine: bool) -> void:
+	if veil_open():
+		return  # a paused table shows nothing over its card
 	var w := 980.0
 	var h := 180.0
 	var c := Control.new()
@@ -630,6 +769,8 @@ func banner(text: String, mine: bool) -> void:
 func announce(line1: String, line2: String, mine: bool, dur := 1.6) -> void:
 	if _announce and is_instance_valid(_announce):
 		_announce.queue_free()
+	if veil_open():
+		return
 	# the plate's frame takes about 30 px top and bottom: both lines sit inside its band
 	var w := 1120.0
 	var h := 236.0

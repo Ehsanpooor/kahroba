@@ -7,7 +7,7 @@ extends Node
 ## {ok, data, code, message}; `code` is Nakama's status code (0 when the server
 ## was not reached at all).
 
-signal match_message(op: int, data: Dictionary)  ## a match op code (100..110) from the server
+signal match_message(op: int, data: Dictionary)  ## a match op code (100..112) from the server
 signal matched(info: Dictionary)  ## the matchmaker found a table: {match_id, token}
 signal notification(code: int, content: Dictionary)
 signal socket_closed
@@ -25,6 +25,9 @@ const OP_CONCEDE := 6
 const OP_SYNC := 7
 const OP_READY := 8
 const OP_AD_DONE := 9  ## this device's ad break is over (payload {})
+const OP_PAUSE := 10  ## {on}: ask for the pause of a friends' game (or take it back)
+const OP_RESUME := 11  ## {on}: ready to go on (while paused)
+const OP_SKIP := 12  ## pass this turn
 const OP_STATE := 100
 const OP_TURN := 102
 const OP_REJECTED := 103
@@ -35,6 +38,8 @@ const OP_READY_STATE := 107
 const OP_REMOVED := 108
 const OP_STARTED := 109
 const OP_AD_BREAK := 110  ## everyone is ready: show an ad, then send OP_AD_DONE ({deadlineMs})
+const OP_TABLE_STATUS := 111  ## every seat's flags (offline, pause votes) and the pause
+const OP_TURN_SKIPPED := 112  ## {playerIndex}: the player on turn passed it
 
 ## Server elements as the game's gem colours, and back.
 const TO_GEM := {"light": "white", "water": "blue", "nature": "green", "fire": "red", "shadow": "black", "aether": "gold"}
@@ -56,7 +61,8 @@ var _synced_profile := ""  ## the profile the server last accepted this session
 ## come back for a while the socket is treated as closed, so the game's
 ## reconnect starts at once instead of waiting on a dead line.
 const PING_EVERY := 5.0
-const DEAD_AFTER := 13.0
+const DEAD_AFTER := 20.0  # a slow phone line can hold a few pongs back; this is silence
+const ALIVE_WITHIN := 12.0  # a socket that brought something this recently works
 var _last_rx := 0.0  ## when the socket last brought anything (seconds)
 var _last_ping := 0.0
 
@@ -276,6 +282,17 @@ func socket_ready() -> bool:
 	return _ws != null and _ws.get_ready_state() == WebSocketPeer.STATE_OPEN
 
 
+## The socket is open and the server answered it lately (pings go every 5 s):
+## the game is connected, whatever a separate check of the line says.
+func socket_alive() -> bool:
+	return socket_ready() and _ws_open and _now() - _last_rx < ALIVE_WITHIN
+
+
+## Seconds since the socket last brought anything (diagnostics).
+func socket_quiet_for() -> float:
+	return _now() - _last_rx
+
+
 ## Open the realtime socket (once signed in).
 func connect_socket() -> bool:
 	if socket_ready():
@@ -391,6 +408,7 @@ func _process(_delta: float) -> void:
 ## The socket went quiet: close it and say so, as if the server had closed it.
 func _drop_socket() -> void:
 	push_warning("socket silent for %.0f s: reconnecting" % (_now() - _last_rx))
+	Analytics.event("net_drop", {"quiet": int(_now() - _last_rx)})
 	_ws.close()
 	_ws = null
 	if _ws_open:

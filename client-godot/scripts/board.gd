@@ -413,20 +413,49 @@ func _on_net_changed(online: bool) -> void:
 	if game_over:
 		return
 	if not online and not _net_down:
+		# An online game is connected by its socket: while the socket still
+		# answers, a failed check of the line (a slow moment of a phone line)
+		# changes nothing.
+		if net != null and Api.socket_alive():
+			return
 		_net_down = true
 		_down_at = Time.get_ticks_msec() / 1000.0
+		var how := "socket" if net != null and not Api.socket_ready() else "check"
+		print("NETLOG lost how=%s quiet=%.1f online=%s" % [how, Api.socket_quiet_for(), Net.online])
+		Analytics.event("net_lost", {"how": how, "quiet": int(Api.socket_quiet_for()), "mode": mode})
 		if inspecting:
 			close_inspect()
 		hud.connection_lost(func():
 			_net_down = false
 			_to_menu())  # the game stays saved: Rejoin from the menu
 		get_tree().paused = true
+		_watch_net_down()
 	elif online and _net_down and (net == null or Api.socket_ready()):
-		_net_down = false
-		get_tree().paused = false
-		hud.turn_started += Time.get_ticks_msec() / 1000.0 - _down_at  # the clock waited too
-		hud.close_modal()
-		hud.toast(L.t("reconnected"))
+		_net_back("line")
+
+
+## The connection dialog is up: the moment the game's socket answers again
+## (it may never have stopped), the game goes on.
+func _watch_net_down() -> void:
+	while _net_down and is_inside_tree():
+		await get_tree().create_timer(1.0).timeout  # (runs while the table is paused)
+		if _net_down and net != null and Api.socket_alive() and Api.match_id != "":
+			_net_back("socket")
+
+
+func _net_back(how: String) -> void:
+	if not _net_down:
+		return
+	_net_down = false
+	var sec := Time.get_ticks_msec() / 1000.0 - _down_at
+	print("NETLOG back how=%s after=%.1f" % [how, sec])
+	Analytics.event("net_back", {"how": how, "sec": int(sec), "mode": mode})
+	get_tree().paused = false
+	hud.turn_started += sec  # the clock waited too
+	hud.close_modal()
+	hud.toast(L.t("reconnected"))
+	if net != null:
+		net.check_turn()  # make sure this table shows the server's turn
 
 
 func _exit_tree() -> void:
@@ -509,6 +538,8 @@ func _build() -> void:
 		hud.set_turn(turn, mode != "tutorial")
 	_update_bar()
 	_refresh_glows()
+	if net:
+		apply_table_status()  # the new panels show who is offline or asked for the pause
 
 
 func _place(node: Node3D, m: Vector2, k := 1.0, lift_px := 0.0) -> Node3D:
@@ -935,7 +966,7 @@ func _activate(t: Variant) -> void:
 # ------------------------------------------------------------------ turns + clock
 
 func _my_turn() -> bool:
-	return turn == 0 and not game_over and not (net and net.awaiting)
+	return turn == 0 and not game_over and not (net and (net.awaiting or net.paused))
 
 
 func start_turn(t: int, continuing := false) -> void:
@@ -1115,7 +1146,7 @@ func _set_move_power(seat: int, power: int) -> void:
 ## The buttons under the middle follow the turn: Skip, or Undo / Done.
 func _update_bar() -> void:
 	var mine_ := _my_turn()
-	hud.show_skip(mine_ and picks.is_empty() and inspecting == null and net == null)
+	hud.show_skip(mine_ and picks.is_empty() and inspecting == null)
 	if not mine_ or picks.is_empty():
 		if staged.is_empty() or mine_:
 			hud.set_stage("", false)
@@ -1147,6 +1178,10 @@ func open_menu() -> void:
 	]
 	if can_pause():
 		items.insert(1, [L.t("pause"), "dark", pause_game])
+	elif net and net.can_pause() and not net.paused:
+		var asked: bool = net.seat_flags()[0]["pause"]
+		items.insert(1, [L.t("pause_cancel") if asked else L.t("pause_ask", int(net.table.get("pauseVotes", 0)),
+				int(net.table.get("pauseNeeded", 1))), "dark", func(): _ask_pause(not asked)])
 	if mode in ["online", "friends"]:
 		items.append([L.t("report"), "dark", _report])
 	items.append([L.t("leave"), "red", _ask_leave])
@@ -1172,6 +1207,60 @@ func _open_screen(screen_name: String) -> void:
 	sc.play.connect(func(g: Dictionary):
 		Prefs.game = g
 		get_tree().reload_current_scene())
+
+
+# ------------------------------------------------------------------ the pause of a friends' game
+
+## Ask for the pause (or take the request back). The game stops for everyone
+## once N-1 of the N players have asked.
+func _ask_pause(on: bool) -> void:
+	if net == null:
+		return
+	net.send_pause(on)
+	var votes := int(net.table.get("pauseVotes", 0)) + (1 if on else -1)
+	var need := int(net.table.get("pauseNeeded", 1))
+	if on and votes < need:
+		hud.toast(L.t("pause_you_asked", maxi(votes, 1), need))
+
+
+var _flags_shown: Array = []  # the seat flags last shown, to tell what changed
+
+## The table's flags from the server (online games): a red rim on whoever is
+## offline, PAUSED on whoever asked for the pause, and the pause itself (the
+## board hidden on every device until N-1 players resume it).
+func apply_table_status() -> void:
+	if net == null or hud == null or hud.me_view == null:
+		return
+	var flags: Array = net.seat_flags()
+	for k in flags.size():
+		hud.set_seat_flags(k, flags[k]["offline"], flags[k]["pause"])
+		var was: Dictionary = _flags_shown[k] if k < _flags_shown.size() else {}
+		if k > 0 and flags[k]["pause"] and not was.get("pause", false) and not net.paused:
+			hud.toast(L.t("pause_asks", String(opps[k - 1]["name"]), "%d/%d" % [int(net.table.get("pauseVotes", 0)),
+					int(net.table.get("pauseNeeded", 1))]))
+		if k > 0 and flags[k]["offline"] != was.get("offline", false) and not _flags_shown.is_empty():
+			hud.toast(L.t("player_offline" if flags[k]["offline"] else "player_back", String(opps[k - 1]["name"])))
+	var was_paused := hud.veil_open()
+	_flags_shown = flags
+	if net.paused:
+		hud.freeze_clock(float(net.table.get("turnLeftMs", 0)) / 1000.0)
+		if not was_paused:
+			if inspecting:
+				close_inspect()
+			if hud.is_modal():
+				hud.close_modal()
+			Sfx.play("dialog_open")
+		hud.pause_veil({"votes": int(net.table.get("resumeVotes", 0)), "needed": int(net.table.get("resumeNeeded", 2)),
+				"mine": flags[0]["resume"], "my_pause": flags[0]["pause"],
+				"close_in": (float(net.table.get("closeAtMs", 0)) - float(net.table.get("serverNowMs", 0))) / 1000.0},
+				func(): net.send_resume(not net.seat_flags()[0]["resume"]),
+				func(): net.send_pause(true))
+		_update_bar()
+	elif was_paused:
+		hud.close_veil()
+		hud.toast(L.t("game_resumed"))
+		_update_bar()
+		_refresh_glows()
 
 
 # ------------------------------------------------------------------ pause (games against the computer)
@@ -1581,20 +1670,27 @@ func _commit_my_coins() -> void:
 
 
 func skip_turn() -> void:
-	if not _my_turn() or net:  # an online turn passes only when its clock runs out
+	if not _my_turn():
 		return
 	if not picks.is_empty():
 		_deny(L.t("finish_tokens_first"))
 		return
-	var do_skip := func():
-		if _my_turn() and picks.is_empty():
-			hud.toast(L.t("you_skipped"))
-			_log(0, "skip")
-			end_turn()
 	if not Prefs.get_v("confirm_moves"):
-		do_skip.call()
+		_do_skip()
 		return
-	hud.confirm(L.t("skip_title"), L.t("skip_body"), L.t("skip"), do_skip)
+	hud.confirm(L.t("skip_title"), L.t("skip_body"), L.t("skip"), _do_skip)
+
+
+func _do_skip() -> void:
+	if not _my_turn() or not picks.is_empty():
+		return
+	hud.toast(L.t("you_skipped"))
+	if net:
+		hud.show_skip(false)
+		net.send_skip()  # the server passes the turn on
+		return
+	_log(0, "skip")
+	end_turn()
 
 
 # ------------------------------------------------------------------ buying + reserving
@@ -2671,6 +2767,9 @@ func _autoplay() -> void:
 			continue
 		if _video():
 			await _video_my_move()
+			continue
+		if OS.get_cmdline_user_args().has("--skiptest") and round_no <= 2:
+			_do_skip()  # test: pass the first turns
 			continue
 		var bought := false
 		for c in cards:

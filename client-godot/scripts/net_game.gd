@@ -32,6 +32,7 @@ var _resync := false  ## after a reconnect the next state replaces the table
 ## few seconds the whole table is asked for again and rebuilt from it.
 const AWAIT_LIMIT := 8.0
 var _awaiting_for := 0.0
+var _sent_on_turn := 0  # the turn your move was sent on: a newer turn from the server answers it
 ## The table checks itself against the server (an online game must never sit
 ## on the wrong turn): the server always moves the turn on by its deadline,
 ## so a turn shown past that deadline, or a move whose animation never ends,
@@ -45,6 +46,12 @@ var _checking := false  # a check asked for the table: compare, replace if it di
 var _shown_turn_no := 0
 var ad_break := false  ## the server's ad break before the game: waiting for the others
 var _ad_sent := false
+var _latest_turn_no := 0  # the newest turn any message has told of (played or still queued)
+## The table's flags (TABLE_STATUS, op 111): who is offline, who asked for the
+## pause of a friends' game, and the pause itself. Seats are the server's.
+var table := {}
+var paused := false  ## a friends' game the players paused: the board is hidden
+var _reconnect_tries := 0
 
 
 func attach(board: Node) -> void:
@@ -70,10 +77,16 @@ func _on_message(op: int, data: Dictionary) -> void:
 		print("NET op=%d phase=%s started=%s" % [op, String(data.get("phase", "")), started])
 	match op:
 		Api.OP_STATE:
+			var tno := int(data.get("turnNumber", 0))
+			if data.has("table"):
+				_table_status(data["table"])
 			if _checking and started and not _resync:
 				_checking = false
-				if int(data.get("turnNumber", 0)) == _shown_turn_no and _queue.is_empty() and not _running:
-					return  # this table is right
+				# right when it is the turn shown, or the one the queue is about to show
+				if tno == _shown_turn_no and _queue.is_empty() and not _running \
+						or tno <= _latest_turn_no and (not _queue.is_empty() or _running):
+					return
+				print("NETLOG turn check: server turn %d, shown %d, latest %d" % [tno, _shown_turn_no, _latest_turn_no])
 				push_warning("turn check: the table differs from the server; loading it again")
 				_resync = true
 			if _resync and started:
@@ -83,6 +96,7 @@ func _on_message(op: int, data: Dictionary) -> void:
 				_start_turn_from(data.get("currentTurn", 0), int(data.get("turnDeadlineMs", 0)), int(data.get("serverNowMs", 0)),
 						int(data.get("turnNumber", 1)))
 				return
+			_latest_turn_no = maxi(_latest_turn_no, tno)
 			if state.is_empty() or not started:
 				_set_state(data)
 				if started:
@@ -90,6 +104,14 @@ func _on_message(op: int, data: Dictionary) -> void:
 				state_arrived.emit()
 				return
 			_queue.append([op, data])
+		Api.OP_TABLE_STATUS:
+			_table_status(data)
+			return
+		Api.OP_TURN_SKIPPED:
+			var ks := local(int(data.get("playerIndex", 0)))
+			if started and ks != 0:
+				b.hud.toast(L.t("opp_skips", String(_seat_dict(ks)["name"])))
+			return
 		Api.OP_READY_STATE:
 			_ready_state = data
 			state_arrived.emit()
@@ -103,6 +125,8 @@ func _on_message(op: int, data: Dictionary) -> void:
 		Api.OP_AD_BREAK:
 			_ad_break()
 		_:
+			if op == Api.OP_TURN:
+				_latest_turn_no = maxi(_latest_turn_no, int(data.get("turnNumber", 0)))
 			if started:
 				_queue.append([op, data])
 			elif op == Api.OP_ENDED:
@@ -424,9 +448,15 @@ func _start_turn_from(seat_v: Variant, deadline_ms: int, now_ms: int, turn_numbe
 	if deadline_ms > 0 and now_ms > 0:
 		left = (deadline_ms - now_ms) / 1000.0
 		b.hud.turn_started = Time.get_ticks_msec() / 1000.0 - (b.hud.TURN_SECONDS - left)
-	_turn_due = _now() + maxf(left, 0.0)
+	_turn_due = _now() + maxf(left, 0.0) if not paused else 0.0
+	if paused:  # (a turn that began just before the pause) its clock waits too
+		b.hud.freeze_clock(float(table.get("turnLeftMs", 0)) / 1000.0)
 	_shown_turn_no = turn_number
+	_latest_turn_no = maxi(_latest_turn_no, turn_number)
 	awaiting = false
+	if turn_number == 3 and OS.get_cmdline_user_args().has("--pausetest") and not _pt_asked:
+		_pt_asked = true  # test: everyone asks for the pause, one after another
+		get_tree().create_timer(1.0 + my_seat * 2.0).timeout.connect(func(): send_pause(true))
 
 
 ## One state after a move: play the move, then take the server's numbers.
@@ -687,8 +717,7 @@ func _sync() -> void:
 ## Every move may carry `noble`: the noble chosen when the move leaves you
 ## qualifying for more than one ("" = none to choose).
 func send_take(picks: Array, noble := "") -> void:
-	awaiting = true
-	_awaiting_for = 0.0
+	_sent()
 	if picks.size() == 2 and picks[0] == picks[1]:
 		Api.send_op(Api.OP_CHANNEL, {"element": Api.TO_ELEMENT[picks[0]], "artifactId": noble})
 	else:
@@ -696,25 +725,116 @@ func send_take(picks: Array, noble := "") -> void:
 
 
 func send_buy(id: String, from_reserve: bool, noble := "") -> void:
-	awaiting = true
-	_awaiting_for = 0.0
+	_sent()
 	Api.send_op(Api.OP_HIRE, {"characterId": id, "fromReserve": from_reserve, "aetherUse": 0, "artifactId": noble})
 
 
 func send_reserve(id: String, noble := "") -> void:
-	awaiting = true
-	_awaiting_for = 0.0
+	_sent()
 	Api.send_op(Api.OP_JAIL, {"characterId": id, "artifactId": noble})
 
 
 func send_reserve_blind(tier: int, noble := "") -> void:
+	_sent()
+	Api.send_op(Api.OP_JAIL, {"characterId": "", "tier": tier, "artifactId": noble})
+
+
+func send_skip() -> void:
+	_sent()
+	Api.send_op(Api.OP_SKIP)
+
+
+## A move went to the server: no other move until it is answered.
+func _sent() -> void:
 	awaiting = true
 	_awaiting_for = 0.0
-	Api.send_op(Api.OP_JAIL, {"characterId": "", "tier": tier, "artifactId": noble})
+	_sent_on_turn = _shown_turn_no
+
+
+## Ask for the pause of a friends' game, or take the request back.
+func send_pause(on: bool) -> void:
+	Api.send_op(Api.OP_PAUSE, {"on": on})
+
+
+## While paused: ready to go on, or not.
+func send_resume(on: bool) -> void:
+	Api.send_op(Api.OP_RESUME, {"on": on})
 
 
 func concede() -> void:
 	Api.send_op(Api.OP_CONCEDE)
+
+
+# ------------------------------------------------------------------ the table's flags and the pause
+
+## TABLE_STATUS: every seat's flags; the pause starts or ends.
+func _table_status(st: Dictionary) -> void:
+	table = st
+	var was := paused
+	paused = bool(st.get("paused", false))
+	if not started or b.hud == null:
+		return
+	b.apply_table_status()
+	_pause_test(was)
+	if paused and not was:
+		_turn_due = 0.0  # the clock stands still: no deadline to check against
+		b.hud.freeze_clock(float(st.get("turnLeftMs", 0)) / 1000.0)
+	elif was and not paused:
+		var left := float(st.get("turnLeftMs", 0)) / 1000.0
+		_turn_due = _now() + left
+		b.hud.turn_started = Time.get_ticks_msec() / 1000.0 - (b.hud.TURN_SECONDS - left)
+		b.hud.resume_timer()
+
+
+## Test (--pausetest): resume 8 s into the pause; --pauseshot=<file> saves
+## the table when the first player asked (<file>_asked.png) and paused
+## (<file>_paused.png).
+var _pt_asked := false
+var _pt_shots := {}
+
+
+func _pause_test(was: bool) -> void:
+	var args := OS.get_cmdline_user_args()
+	if not args.has("--pausetest"):
+		return
+	if paused and not was:
+		print("PAUSETEST paused")
+		get_tree().create_timer(8.0 + my_seat * 1.0).timeout.connect(func(): send_resume(true))
+		_pause_shot("paused", 2.5)
+	elif was and not paused:
+		print("PAUSETEST resumed")
+		_pause_shot("resumed", 1.2)
+	elif not paused and int(table.get("pauseVotes", 0)) > 0:
+		_pause_shot("asked", 1.6)
+
+
+func _pause_shot(tag: String, after: float) -> void:
+	var path := ""
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--pauseshot="):
+			path = a.get_slice("=", 1)
+	if path == "" or _pt_shots.has(tag):
+		return
+	_pt_shots[tag] = true
+	await get_tree().create_timer(after).timeout
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(path.get_basename() + "_" + tag + ".png")
+
+
+## Seat flags by local seat (you are seat 0): [{offline, pause, resume}].
+func seat_flags() -> Array:
+	var out := []
+	var seats: Array = table.get("seats", [])
+	for k in n:
+		var ss := server_seat(k)
+		var f: Dictionary = seats[ss] if ss < seats.size() else {}
+		out.append({"offline": bool(f.get("disconnected", false)), "pause": bool(f.get("pauseVote", false)),
+				"resume": bool(f.get("resumeVote", false))})
+	return out
+
+
+func can_pause() -> bool:
+	return bool(table.get("canPause", false)) and not _ended
 
 
 func _rejected(data: Dictionary) -> void:
@@ -722,7 +842,7 @@ func _rejected(data: Dictionary) -> void:
 	var code := String(data.get("code", ""))
 	var key: String = {"not_your_turn": "wait_turn", "coin_limit": "max_tokens", "cannot_afford": "not_enough",
 			"reserve_full": "reserve_full", "deck_empty": "deck_empty", "supply_empty": "none_left",
-			"channel_supply_low": "two_needs_four"}.get(code, "move_refused")
+			"channel_supply_low": "two_needs_four", "game_paused": "game_is_paused"}.get(code, "move_refused")
 	b.hud.toast(L.t(key, 10))
 	if not b.staged.is_empty():
 		_undo_staged()
@@ -736,8 +856,8 @@ func _game_ended(data: Dictionary) -> void:
 	b.hud.stop_timer()
 	SavedGame.clear()
 	var reason := String(data.get("reason", ""))
-	if reason == "lobbyTimeout":
-		b.hud.toast(L.t("room_closed"))
+	if reason == "lobbyTimeout" or reason == "pauseTimeout":
+		b.hud.toast(L.t("room_closed_pause" if reason == "pauseTimeout" else "room_closed"))
 		await b._wait(1.6)
 		b._to_menu()
 		return
@@ -776,13 +896,16 @@ func _on_socket_closed() -> void:
 	if _ended:
 		return
 	b._on_net_changed(false)
+	_reconnect_tries = 0
 	while not _ended and is_inside_tree():
-		await get_tree().create_timer(2.0).timeout
-		if not Net.online:
-			continue
+		# the socket itself is the test of the line: try it (more slowly as it fails)
+		await get_tree().create_timer(2.0 if _reconnect_tries < 5 else 4.0).timeout
+		_reconnect_tries += 1
 		if not await Api.connect_socket():
+			print("NETLOG reconnect %d: no socket" % _reconnect_tries)
 			continue
 		var why := await Api.join_match(String(Prefs.game.get("match_id", "")))
+		print("NETLOG reconnect %d: join %s" % [_reconnect_tries, why if why != "" else "ok"])
 		if why == "":
 			_resync = true
 			Api.send_op(Api.OP_SYNC)
@@ -822,20 +945,28 @@ func reload(why: String) -> void:
 
 ## Back in the app: ask the server which turn it is, and compare.
 func _notification(what: int) -> void:
-	if (what == NOTIFICATION_APPLICATION_RESUMED or what == NOTIFICATION_APPLICATION_FOCUS_IN) 			and started and not _ended and Api.socket_ready():
+	if what == NOTIFICATION_APPLICATION_RESUMED or what == NOTIFICATION_APPLICATION_FOCUS_IN:
+		check_turn()
+
+
+## Ask the server for the table and compare its turn with the one shown.
+func check_turn() -> void:
+	if started and not _ended and not _resync and Api.socket_ready():
 		_checking = true
 		Api.send_op(Api.OP_SYNC)
 
 
 func _process(delta: float) -> void:
-	if started and not _ended and not get_tree().paused:
+	if started and not _ended and not get_tree().paused and not paused:
 		var now := _now()
 		if _running and now - _item_started > STUCK_LIMIT:
 			reload("a move took over %d s to show" % int(STUCK_LIMIT))
 		elif not _running and _turn_due > 0.0 and now > _turn_due + PAST_DEADLINE:
 			reload("the turn is past its deadline")
-	if not awaiting or _ended:
+	if not awaiting or _ended or paused:
 		return
+	if _latest_turn_no > _sent_on_turn:
+		return  # answered: the move waits in the queue behind the moves before it
 	_awaiting_for += delta
 	if _awaiting_for > AWAIT_LIMIT and Api.socket_ready():
 		_awaiting_for = 0.0

@@ -112,6 +112,9 @@ With the slot off nothing changes: the game starts the moment all are ready.
 | `ad_slot` | `slot`, `shown` (bool) |
 | `update_prompt` | `forced` (bool), `accepted` (bool) |
 | `rate_prompt` | `accepted` (bool) |
+| `net_lost` | `how` (`socket`: the game's socket closed; `check`: the line check failed while the socket was silent too), `quiet` (seconds since the socket last brought anything), `mode` |
+| `net_back` | `how` (`socket`, `line`), `sec` (seconds the connection dialog was up), `mode` |
+| `net_drop` | `quiet` (the heartbeat closed a socket silent this long) |
 | `error` | `msg`, `file`, `line` (script errors, at most 20 a session, each message once) |
 | `crash` | `log` (the end of the previous session's log, at most 4 KB; sent on the next start when the previous session did not close cleanly) |
 
