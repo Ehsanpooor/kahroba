@@ -19,10 +19,12 @@ import (
 
 type msgHarvest struct {
 	Elements []Element `json:"elements"`
+	Return   Cost      `json:"return,omitempty"` // the exchange: coins handed back past 10
 }
 
 type msgChannel struct {
 	Element Element `json:"element"`
+	Return  Cost    `json:"return,omitempty"` // the exchange: coins handed back past 10
 }
 
 type msgHire struct {
@@ -119,14 +121,22 @@ func handleHarvest(ms *MatchState, p *PlayerState, data []byte, tc turnCtx) *Mat
 		rejectCode(ms, tc.dispatcher, p.UserID, ErrBadPayload, "invalid harvest payload")
 		return ms
 	}
-	if err := ValidateHarvest(req.Elements, ms.Supply, p.Coins); err != nil {
+	taken := Cost{}
+	for _, e := range req.Elements {
+		taken[e]++
+	}
+	err := ValidateHarvest(req.Elements, ms.Supply, p.Coins)
+	if len(req.Return) > 0 {
+		err = validateHarvestTake(req.Elements, ms.Supply)
+		if err == nil {
+			err = ValidateReturn(addCoins(p.Coins, taken), req.Return)
+		}
+	}
+	if err != nil {
 		reject(ms, tc.dispatcher, p.UserID, err)
 		return ms
 	}
-	for _, e := range req.Elements {
-		p.Coins[e]++
-		ms.Supply[e]--
-	}
+	takeAndReturn(ms, p, taken, req.Return)
 	return endOfTurn(ms, tc)
 }
 
@@ -137,13 +147,55 @@ func handleChannel(ms *MatchState, p *PlayerState, data []byte, tc turnCtx) *Mat
 		rejectCode(ms, tc.dispatcher, p.UserID, ErrBadPayload, "invalid channel payload")
 		return ms
 	}
-	if err := ValidateChannel(req.Element, ms.Supply, p.Coins); err != nil {
+	taken := Cost{req.Element: 2}
+	err := ValidateChannel(req.Element, ms.Supply, p.Coins)
+	if len(req.Return) > 0 {
+		err = validateChannelTake(req.Element, ms.Supply)
+		if err == nil {
+			err = ValidateReturn(addCoins(p.Coins, taken), req.Return)
+		}
+	}
+	if err != nil {
 		reject(ms, tc.dispatcher, p.UserID, err)
 		return ms
 	}
-	p.Coins[req.Element] += 2
-	ms.Supply[req.Element] -= 2
+	takeAndReturn(ms, p, taken, req.Return)
 	return endOfTurn(ms, tc)
+}
+
+// addCoins is a + b as a new map.
+func addCoins(a, b Cost) Cost {
+	out := Cost{}
+	for e, q := range a {
+		out[e] += q
+	}
+	for e, q := range b {
+		out[e] += q
+	}
+	return out
+}
+
+// takeAndReturn moves a validated take from the supply to the player, then
+// the exchange's return (if any) back to the supply.
+func takeAndReturn(ms *MatchState, p *PlayerState, taken, ret Cost) {
+	for e, q := range taken {
+		p.Coins[e] += q
+		ms.Supply[e] -= q
+	}
+	for e, q := range ret {
+		if q <= 0 {
+			continue
+		}
+		p.Coins[e] -= q
+		if p.Coins[e] <= 0 {
+			delete(p.Coins, e)
+		}
+		if e == EAether {
+			ms.AetherSupply += q
+		} else {
+			ms.Supply[e] += q
+		}
+	}
 }
 
 // handleHire — Action C: pay for a card from the board or your own reserve.

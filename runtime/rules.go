@@ -66,11 +66,9 @@ const (
 	ErrDeckEmpty        = "deck_empty"
 	ErrCoinLimit        = "coin_limit"
 	ErrGameNotRunning   = "game_not_running"
+	ErrReturnCount      = "return_count_mismatch"
+	ErrReturnNotHeld    = "return_coins_not_held"
 )
-
-// Removed in the coin-limit house rule (2026-10): must_return_coins,
-// return_count_mismatch and return_coins_not_held. The server never sends them
-// any more; see API_DOC §6.3.
 
 // ---------- Cost calculation (GDD v2 §5.5, §5.6) ----------
 
@@ -160,15 +158,15 @@ func PlayerPower(hired []CharacterCard, artifactCount int) int {
 	return power
 }
 
-// ---------- Coin hold limit (house rule, GDD v2 §5.4) ----------
+// ---------- Coin hold limit (GDD v2 §5.4) ----------
 //
-// DELIBERATE DEPARTURE FROM SPLENDOR. Official Splendor lets a player take coins
-// past 10 and then hand the excess back at the end of the turn. Veynoria does
-// not: a player may never hold more than MaxCoins (10, Aether included), so a
-// Harvest or Channel that would cross the limit is rejected outright with
-// coin_limit, and there is no return step. Taking 1 or 2 coins to land exactly
-// on the limit stays legal. Reserving stays legal at the limit but then grants
-// no Aether (see ReserveGrantsAether).
+// A player never ends a turn holding more than MaxCoins (10, Aether included).
+// As in official Splendor a take may go past 10 when it names the coins to
+// hand back ("return" in the Harvest / Channel payload: exactly the excess,
+// from the coins held after the take, the new ones included); the app calls
+// this the exchange. A take past the limit without a return (older apps, the
+// bots) is rejected with coin_limit. Reserving stays legal at the limit but
+// then grants no Aether (see ReserveGrantsAether).
 
 // CoinRoom is how many more coins the player may take before reaching the
 // hold limit. Never negative.
@@ -203,6 +201,15 @@ func ReserveGrantsAether(playerCoins Cost, aetherSupply int) bool {
 // FAQ allows taking fewer than 3 voluntarily, which players need in order to
 // fill up to exactly 10, so 1 and 2 are legal.
 func ValidateHarvest(elements []Element, supply Cost, playerCoins Cost) error {
+	if err := validateHarvestTake(elements, supply); err != nil {
+		return err
+	}
+	return checkCoinLimit(playerCoins, len(elements))
+}
+
+// validateHarvestTake is ValidateHarvest without the hold limit (an exchange
+// checks its return instead).
+func validateHarvestTake(elements []Element, supply Cost) error {
 	if len(elements) == 0 || len(elements) > MaxHarvestCoins {
 		return ruleErr(ErrHarvestCount, "harvest takes 1 to 3 coins of different elements")
 	}
@@ -222,13 +229,21 @@ func ValidateHarvest(elements []Element, supply Cost, playerCoins Cost) error {
 		}
 		seen[e] = true
 	}
-	return checkCoinLimit(playerCoins, len(elements))
+	return nil
 }
 
 // ValidateChannel checks ACTION_CHANNEL (op 2): 2 of one colour, legal only
 // while the supply still holds at least 4 of it and the player has room for
 // both coins under the hold limit.
 func ValidateChannel(element Element, supply Cost, playerCoins Cost) error {
+	if err := validateChannelTake(element, supply); err != nil {
+		return err
+	}
+	return checkCoinLimit(playerCoins, 2)
+}
+
+// validateChannelTake is ValidateChannel without the hold limit.
+func validateChannelTake(element Element, supply Cost) error {
 	if element == EAether {
 		return ruleErr(ErrChannelAether, "cannot channel Aether")
 	}
@@ -238,7 +253,27 @@ func ValidateChannel(element Element, supply Cost, playerCoins Cost) error {
 	if supply[element] < ChannelMinSupply {
 		return ruleErr(ErrChannelSupplyLow, "supply must hold at least 4 of "+string(element)+" to channel")
 	}
-	return checkCoinLimit(playerCoins, 2)
+	return nil
+}
+
+// ValidateReturn checks the coins handed back with a take that went past the
+// hold limit (the exchange): exactly the excess over MaxCoins, each one held
+// after the take (`after`, the new coins included). Aether may go back too.
+func ValidateReturn(after Cost, ret Cost) error {
+	n := 0
+	for e, q := range ret {
+		if q < 0 || !isElement(e) && e != EAether {
+			return ruleErr(ErrReturnNotHeld, "bad return: "+string(e))
+		}
+		if q > after[e] {
+			return ruleErr(ErrReturnNotHeld, "cannot return coins not held: "+string(e))
+		}
+		n += q
+	}
+	if n != TotalCoins(after)-MaxCoins {
+		return ruleErr(ErrReturnCount, "return exactly the coins over "+strconv.Itoa(MaxCoins))
+	}
+	return nil
 }
 
 // ValidateHire checks ACTION_HIRE (op 3) and returns the coins to deduct.

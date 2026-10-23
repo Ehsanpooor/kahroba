@@ -11,6 +11,7 @@ signal close_inspect
 signal done_pressed
 signal undo_pressed
 signal skip_pressed
+signal exchange_pressed
 signal menu_pressed
 signal time_up
 
@@ -24,9 +25,11 @@ const MENU := Rect2(2316.6 - 112, 14, 96, 96)
 const STAGE_Y := 807.1  # between the board and your panel
 ## The in-game buttons, measured on the host's screenshots (design px).
 const BTN_SKIP := Rect2(730, 752, 340, 92)
+const BTN_EXCHANGE := Rect2(1094, 752, 340, 92)  # beside Skip
 const BTN_UNDO := Rect2(730, 752, 300, 92)
 const BTN_DONE := Rect2(1500, 752, 340, 92)
 const BTN_PX := 40.0
+const MAX_HOLD := 10  # gems a player may hold at the end of a turn
 const CENTER := Vector2(1441.3, 427.2)  # middle of the card area (design: slots centre)
 
 const GOLD := Color(0.96, 0.78, 0.4)
@@ -74,6 +77,7 @@ var _round: Label
 var _stage := {}
 var _inspect := {}
 var _skip_btn: Button
+var _exchange_btn: Button
 var _toast: Control
 var _announce: Control
 var _time_up_sent := false
@@ -369,6 +373,10 @@ func _build_stage() -> void:
 	_skip_btn = button(L.t("skip"), BTN_SKIP.size, "onyx", func(): skip_pressed.emit(), BTN_PX,
 			"sans_bold", Color("#d9b46a"))
 	_put(_root, _skip_btn, Vector2(lay.mid(BTN_SKIP.position.x), BTN_SKIP.position.y), BTN_SKIP.size)
+	_exchange_btn = button(L.t("exchange"), BTN_EXCHANGE.size, "sapphire", func(): exchange_pressed.emit(), BTN_PX,
+			"sans_bold", Color("#d9b46a"))
+	_put(_root, _exchange_btn, Vector2(lay.mid(BTN_EXCHANGE.position.x), BTN_EXCHANGE.position.y), BTN_EXCHANGE.size)
+	_exchange_btn.visible = false
 	_stage = {"label": lbl, "undo": undo, "done": done}
 	set_stage("", false)
 
@@ -385,6 +393,79 @@ func set_stage(text: String, mine: bool, full := false) -> void:
 func show_skip(on: bool) -> void:
 	if _skip_btn:
 		_skip_btn.visible = on
+
+
+func show_exchange(on: bool) -> void:
+	if _exchange_btn:
+		_exchange_btn.visible = on
+
+
+## The exchange's second step: a take went past 10, so `over` gems go back.
+## Your gems after the take are laid out (held: {colour: n}); each tap on one
+## hands one more of it back. on_done gets {colour: n} once exactly `over`
+## are chosen; on_cancel puts the take back as it was.
+func choose_return(held: Dictionary, over: int, on_done: Callable, on_cancel: Callable) -> void:
+	var cols: Array = Gems.ALL.filter(func(c): return int(held.get(c, 0)) > 0)
+	var w := maxf(1100.0, 180.0 + cols.size() * 200.0)
+	var size_d := Vector2(w, 640)
+	var box := _content(_open_modal(size_d + Vector2(0, HEAD), false, L.t("return_t", over)))
+	modal.set_meta("on_cancel", on_cancel)
+	_para(box, L.t("return_body", MAX_HOLD), TS.BODY, IVORY, Vector2(70, 20), w - 140.0)
+	var ret := {}
+	var chosen := _text(box, "", TS.BODY, Kit.GOLD, "title_bold", Vector2(70, 386), w - 140.0)
+	var marks := {}
+	var ok := button(L.t("return_ok"), Vector2(360, 116), "emerald", func():
+		close_modal()
+		on_done.call(ret.duplicate()), 40.0)
+	var refresh := func():
+		var n := 0
+		for c in ret:
+			n += int(ret[c])
+		chosen.text = L.t("return_chosen", n, over)
+		for c in marks:
+			var q := int(ret.get(c, 0))
+			(marks[c] as Label).text = "-%d" % q if q > 0 else ""
+		Kit.set_enabled(ok, n == over)
+	var x0 := (w - cols.size() * 200.0) * 0.5
+	for k in cols.size():
+		var col: String = cols[k]
+		var x := x0 + (cols.size() - 1 - k if L.fa() else k) * 200.0
+		var tile := Button.new()
+		tile.flat = true
+		tile.focus_mode = Control.FOCUS_NONE
+		_put(box, tile, Vector2(x + 20, 150), Vector2(160, 220))
+		var tok := TextureRect.new()
+		tok.texture = Gems.token_tex(col)
+		tok.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tok.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		tok.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_put(tile, tok, Vector2(10, 0), Vector2(140, 140))
+		_text(tile, str(int(held[col])), TS.NUM_M, IVORY, "num", Vector2(0, 150), 160.0, HORIZONTAL_ALIGNMENT_CENTER, 5.0)
+		marks[col] = _text(tile, "", TS.NUM_M, Color(1.0, 0.45, 0.35), "num", Vector2(90, -10), 90.0,
+				HORIZONTAL_ALIGNMENT_CENTER, 5.0)
+		tile.pressed.connect(func():
+			var n := 0
+			for c in ret:
+				n += int(ret[c])
+			if n < over and int(ret.get(col, 0)) < int(held[col]):
+				ret[col] = int(ret.get(col, 0)) + 1
+				Sfx.play("token_place", -1.0, -6.0)
+			refresh.call())
+	var again := button(L.t("return_reset"), Vector2(300, 116), "onyx", func():
+		ret.clear()
+		refresh.call(), 40.0)
+	var back := button(L.t("cancel"), Vector2(300, 116), "ruby", func():
+		close_modal()
+		on_cancel.call(), 40.0)
+	var y := size_d.y - 156.0
+	var gap := 30.0
+	var bx := (w - 360.0 - 300.0 - 300.0 - gap * 2.0) * 0.5
+	var order: Array = [back, again, ok] if L.fa() else [ok, again, back]
+	var widths := {ok: 360.0, again: 300.0, back: 300.0}
+	for b in order:
+		_put(box, b, Vector2(bx, y), Vector2(float(widths[b]), 116))
+		bx += float(widths[b]) + gap
+	refresh.call()
 
 
 func _build_inspect() -> void:

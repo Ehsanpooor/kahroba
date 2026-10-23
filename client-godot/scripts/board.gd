@@ -175,6 +175,7 @@ func _ready() -> void:
 	hud.reserve_pressed.connect(_on_reserve_pressed)
 	hud.close_inspect.connect(close_inspect)
 	hud.skip_pressed.connect(skip_turn)
+	hud.exchange_pressed.connect(start_exchange)
 	hud.undo_pressed.connect(undo_pick)
 	hud.done_pressed.connect(done_picking)
 	hud.time_up.connect(_on_time_up)
@@ -973,6 +974,7 @@ func start_turn(t: int, continuing := false) -> void:
 	if game_over:
 		return
 	turn = t
+	exchanging = false
 	if t == first_seat and not continuing:
 		round_no += 1
 	hud.round_no = maxi(round_no, 1)
@@ -1147,6 +1149,9 @@ func _set_move_power(seat: int, power: int) -> void:
 func _update_bar() -> void:
 	var mine_ := _my_turn()
 	hud.show_skip(mine_ and picks.is_empty() and inspecting == null)
+	hud.show_exchange(mine_ and picks.is_empty() and inspecting == null and not exchanging
+			and mode != "tutorial" and _coin_total() > MAX_COINS - 3
+			and Gems.COLORS.any(func(c): return int(bank_counts[c]) > 0))
 	if not mine_ or picks.is_empty():
 		if staged.is_empty() or mine_:
 			hud.set_stage("", false)
@@ -1599,7 +1604,7 @@ func take_coin(col: String) -> void:
 	if int(bank_counts[col]) <= 0:
 		_deny(L.t("none_left"), src)
 		return
-	if _coin_total() + picks.size() + 1 > MAX_COINS:
+	if _coin_total() + picks.size() + 1 > MAX_COINS and not exchanging:
 		_deny(L.t("max_tokens", MAX_COINS), src)
 		return
 	if picks.size() == 1 and picks[0] == col and int(bank_counts[col]) < 3:
@@ -1618,7 +1623,7 @@ func take_coin(col: String) -> void:
 	_update_bar()
 	_refresh_glows()
 	var full: bool = picks.size() == 3 or (picks.size() == 2 and picks[0] == picks[1]) \
-			or _coin_total() + picks.size() >= MAX_COINS
+			or _coin_total() + picks.size() >= MAX_COINS and not exchanging
 	if full:
 		hud.toast(L.t("done_hint"))
 
@@ -1647,15 +1652,59 @@ func done_picking() -> void:
 func _finish_picking() -> void:
 	if not _my_turn() or picks.is_empty():
 		return
+	var over := _coin_total() + picks.size() - MAX_COINS
+	if over > 0:  # the exchange: choose the gems that go back first
+		var held := {}
+		for c in Gems.ALL:
+			held[c] = int(me["coins"][c])
+		for c in picks:
+			held[c] += 1
+		hud.choose_return(held, over, func(ret: Dictionary): _finish_take(ret), func(): pass)
+		return
+	_finish_take({})
+
+
+## The take goes through, with the gems handed back past 10 (`ret`).
+func _finish_take(ret: Dictionary) -> void:
+	if not _my_turn() or picks.is_empty():
+		return
+	exchanging = false
 	if net:  # the server says yes, then the tokens fly to you
 		var taken := picks.duplicate()
 		var noble := await _net_noble_pick(me["cards"])
-		net.send_take(taken, noble)
+		net.send_take(taken, noble, ret)
 		hud.set_stage("", false)
 		_refresh_glows()
 		return
 	_commit_my_coins()
+	if not ret.is_empty():
+		var back := []
+		for c in ret:
+			for k in int(ret[c]):
+				back.append(c)
+		_log(0, "return", {"colors": back})
+		var delay := 0.35
+		for c in ret:
+			for k in int(ret[c]):
+				me["coins"][c] -= 1
+				bank_counts[c] += 1
+				_fly_chip_from_point(c, _hud_point(hud.me_token_anchor(c), 40.0), bank[c], delay)
+				delay += 0.1
+		hud.update_me()
 	end_turn()
+
+
+## Exchange (next to Skip): take gems past 10, then give the extra back, as in
+## official Splendor. Shown on your turn when a take of three would go past 10.
+var exchanging := false
+
+
+func start_exchange() -> void:
+	if not _my_turn() or not picks.is_empty():
+		return
+	exchanging = true
+	hud.show_exchange(false)
+	hud.toast(L.t("exchange_hint"))
 
 
 func _commit_my_coins() -> void:
@@ -2768,11 +2817,18 @@ func _autoplay() -> void:
 		if _video():
 			await _video_my_move()
 			continue
+		if OS.get_cmdline_user_args().has("--exchangetest"):
+			print("EXCHANGETEST my turn, coins=%d" % _coin_total())
+			if _coin_total() > MAX_COINS - 3:
+				await _exchange_test()
+				continue
 		if OS.get_cmdline_user_args().has("--skiptest") and round_no <= 2:
 			_do_skip()  # test: pass the first turns
 			continue
 		var bought := false
 		for c in cards:
+			if OS.get_cmdline_user_args().has("--exchangetest"):
+				break  # (gather gems instead, up to the exchange)
 			if c.visible and not c.data.is_empty() and can_afford(me, c.data):
 				open_inspect(c)
 				await _wait(0.6)
@@ -2797,6 +2853,35 @@ func _autoplay() -> void:
 				await _wait(0.6)
 				_on_reserve_pressed()
 				break
+
+
+## Test (--exchangetest): past 8 gems, exchange three of the bank's for
+## three of yours; --exshot=<file> saves the give-back dialog.
+func _exchange_test() -> void:
+	start_exchange()
+	var cols: Array = Gems.COLORS.filter(func(col): return int(bank_counts[col]) > 0)
+	cols.shuffle()
+	for col in cols.slice(0, 3):
+		take_coin(col)
+		await _wait(0.5)
+	_finish_picking()
+	await _wait(1.5)
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--exshot=") and hud.is_modal():
+			await RenderingServer.frame_post_draw
+			get_viewport().get_texture().get_image().save_png(a.get_slice("=", 1))
+	if not hud.is_modal():
+		return
+	hud.close_modal()
+	var over := _coin_total() + picks.size() - MAX_COINS
+	var ret := {}
+	for c in Gems.ALL:  # hand back the gems held longest (not the new ones)
+		var q := mini(int(me["coins"][c]), over)
+		if q > 0:
+			ret[c] = q
+			over -= q
+	print("EXCHANGETEST took %s, gives back %s" % [picks, ret])
+	_finish_take(ret)
 
 
 # ------------------------------------------------------------------ store videos

@@ -52,6 +52,7 @@ var _latest_turn_no := 0  # the newest turn any message has told of (played or s
 var table := {}
 var paused := false  ## a friends' game the players paused: the board is hidden
 var _reconnect_tries := 0
+var _my_take: Array = []  # the gems of your last take (an exchange may hand some back)
 
 
 func attach(board: Node) -> void:
@@ -492,10 +493,21 @@ func _play_state(s: Dictionary) -> void:
 		for c in Gems.COLORS:
 			for k in maxi(int(nc.get(c, 0)) - int(pc.get(c, 0)), 0):
 				gained.append(c)
+		# an exchange: gems went back too (yours, counted from the take you sent)
+		var took: Array = _my_take if actor == 0 and not b.staged.is_empty() else gained
+		var back := []
+		for c in Gems.ALL:
+			for k in maxi(int(pc.get(c, 0)) + took.count(c) - int(nc.get(c, 0)), 0):
+				back.append(c)
 		if not gained.is_empty():
 			await _anim_take(actor, gained)
 		elif actor == 0 and not b.staged.is_empty():
 			await _undo_staged()
+		if not back.is_empty() and not gained.is_empty():
+			if actor != 0:
+				b.hud.toast(L.t("opp_exchanged", String(_seat_dict(actor)["name"])))
+			_pay_flights(actor, back)
+			await b._wait(0.5)
 	# a noble came
 	var na := (np.get("artifacts", []) as Array).size()
 	if na > (pp.get("artifacts", []) as Array).size():
@@ -716,12 +728,21 @@ func _sync() -> void:
 
 ## Every move may carry `noble`: the noble chosen when the move leaves you
 ## qualifying for more than one ("" = none to choose).
-func send_take(picks: Array, noble := "") -> void:
+func send_take(picks: Array, noble := "", ret := {}) -> void:
 	_sent()
+	_my_take = picks.duplicate()
+	var msg := {"artifactId": noble}
+	if not ret.is_empty():  # the exchange: the gems handed back past 10
+		var r := {}
+		for c in ret:
+			r[Api.TO_ELEMENT[c]] = int(ret[c])
+		msg["return"] = r
 	if picks.size() == 2 and picks[0] == picks[1]:
-		Api.send_op(Api.OP_CHANNEL, {"element": Api.TO_ELEMENT[picks[0]], "artifactId": noble})
+		msg["element"] = Api.TO_ELEMENT[picks[0]]
+		Api.send_op(Api.OP_CHANNEL, msg)
 	else:
-		Api.send_op(Api.OP_HARVEST, {"elements": picks.map(func(c): return Api.TO_ELEMENT[c]), "artifactId": noble})
+		msg["elements"] = picks.map(func(c): return Api.TO_ELEMENT[c])
+		Api.send_op(Api.OP_HARVEST, msg)
 
 
 func send_buy(id: String, from_reserve: bool, noble := "") -> void:
@@ -840,6 +861,7 @@ func can_pause() -> bool:
 func _rejected(data: Dictionary) -> void:
 	awaiting = false
 	var code := String(data.get("code", ""))
+	print("NETLOG rejected %s: %s" % [code, String(data.get("reason", ""))])
 	var key: String = {"not_your_turn": "wait_turn", "coin_limit": "max_tokens", "cannot_afford": "not_enough",
 			"reserve_full": "reserve_full", "deck_empty": "deck_empty", "supply_empty": "none_left",
 			"channel_supply_low": "two_needs_four", "game_paused": "game_is_paused"}.get(code, "move_refused")

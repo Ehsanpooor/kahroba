@@ -430,6 +430,17 @@ const S := {
 	"paused_t": ["بازی متوقف شد", "Game paused"],
 	"resume_btn": ["ادامه", "Resume"],
 	"paused_body": ["ساعت و رقیبان منتظر شما می‌مانند.", "The clock and your opponents wait for you."],
+	# --- the exchange (official Splendor: past 10 gems, give the extra back) ---
+	"exchange": ["تعویض جواهر", "Exchange"],
+	"exchange_hint": ["جواهر بردارید؛ بیشتر از 10 را پس می‌دهید", "Take gems; then give back any over 10"],
+	"return_t": ["پس دادن {0} جواهر", "Give back {0} gems"],
+	"return_body": ["در پایان نوبت بیشتر از {0} جواهر نمی‌توانید داشته باشید. روی جواهرهایی که پس می‌دهید بزنید.",
+			"You may hold at most {0} gems at the end of your turn. Tap the gems you give back."],
+	"return_chosen": ["انتخاب شده: {0} از {1}", "Chosen: {0} of {1}"],
+	"return_ok": ["پس بده", "Give back"],
+	"return_reset": ["از نو", "Reset"],
+	"mv_return": ["{0} جواهر پس داد", "{0} gave gems back"],
+	"opp_exchanged": ["{0} جواهر تعویض کرد", "{0} exchanged gems"],
 	# --- the pause of a friends' game (N-1 of the players ask for it) ---
 	"pause_ask": ["درخواست توقف ({0}/{1})", "Ask for a pause ({0}/{1})"],
 	"pause_cancel": ["پس گرفتن درخواست توقف", "Take back the pause request"],

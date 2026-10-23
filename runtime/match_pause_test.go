@@ -201,3 +201,54 @@ func TestTableStatus_DisconnectIsAnnounced(t *testing.T) {
 	}
 	_ = ms
 }
+
+// TestExchange_TakePastTenWithReturn: at 10 coins, take 2 different and hand 2
+// back (official Splendor's return rule); the wrong count or coins not held
+// are refused, and so is going past 10 without a return.
+func TestExchange_TakePastTenWithReturn(t *testing.T) {
+	const start = int64(1_000_000)
+	ms, disp, tc := newTestMatch(t, start, "a", "b")
+	seat := ms.CurrentTurn
+	p := &ms.Players[seat]
+	p.Coins = Cost{ELight: 4, EWater: 4, EAether: 2}
+	uid := p.UserID
+	supplyFire, supplyLight := ms.Supply[EFire], ms.Supply[ELight]
+
+	try := func(op int64, payload interface{}) bool {
+		disp.reset()
+		turn := ms.TurnNumber
+		ms = runLoop(ms, tc, []runtime.MatchData{message(uid, op, payload)})
+		return ms.TurnNumber != turn
+	}
+	if try(OpActionHarvest, msgHarvest{Elements: []Element{EFire, ENature}}) {
+		t.Fatal("went past 10 without a return")
+	}
+	if try(OpActionHarvest, msgHarvest{Elements: []Element{EFire, ENature}, Return: Cost{ELight: 1}}) {
+		t.Fatal("returned 1 of 2 over the limit")
+	}
+	if try(OpActionHarvest, msgHarvest{Elements: []Element{EFire, ENature}, Return: Cost{EShadow: 2}}) {
+		t.Fatal("returned coins not held")
+	}
+	if !try(OpActionHarvest, msgHarvest{Elements: []Element{EFire, ENature}, Return: Cost{ELight: 1, EAether: 1}}) {
+		t.Fatal("a valid exchange was refused")
+	}
+	pc := ms.Players[seat].Coins
+	if TotalCoins(pc) != 10 || pc[EFire] != 1 || pc[ENature] != 1 || pc[ELight] != 3 || pc[EAether] != 1 {
+		t.Errorf("coins after the exchange = %v", pc)
+	}
+	if ms.Supply[EFire] != supplyFire-1 || ms.Supply[ELight] != supplyLight+1 {
+		t.Errorf("supply fire %d light %d", ms.Supply[EFire], ms.Supply[ELight])
+	}
+
+	// a channel exchange (the supply holds 5 light now), handing back one of the coins just taken
+	seat = ms.CurrentTurn
+	p = &ms.Players[seat]
+	p.Coins = Cost{EWater: 5, EShadow: 5}
+	uid = p.UserID
+	if !try(OpActionChannel, msgChannel{Element: ELight, Return: Cost{ELight: 1, EWater: 1}}) {
+		t.Fatal("a channel exchange was refused")
+	}
+	if pc := ms.Players[seat].Coins; TotalCoins(pc) != 10 || pc[ELight] != 1 || pc[EWater] != 4 {
+		t.Errorf("coins after the channel exchange = %v", pc)
+	}
+}

@@ -65,6 +65,7 @@ func _move_row(content: Control, m: Dictionary, s: Dictionary, y: float, mine: b
 		"coins": L.t("mv_coins", who), "buy": L.t("mv_buy", who), "buy_reserved": L.t("mv_buy_res", who),
 		"reserve": L.t("mv_reserve", who), "reserve_blind": L.t("mv_reserve_blind", who, int(m.get("tier", 1))),
 		"noble": L.t("mv_noble", who), "skip": L.t("mv_skip", who), "timeout": L.t("mv_timeout", who),
+		"return": L.t("mv_return", who),
 	}.get(kind, "%s: %s" % [who, kind])
 	text(what, TS.LABEL, Kit.GOLD if kind == "noble" else ink, "sans_bold", Rect2(mx(320, 760, ROW.x), 0, 760, ROW.y),
 			start_align(), holder)
